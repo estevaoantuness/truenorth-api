@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Base de NCMs com regras de compliance
+model NcmDatabase {
+  ncm           String   @id @db.VarChar(8)
+  descricao     String
+  capitulo      String?  @db.VarChar(2)
+
+  // Alíquotas
+  aliquotaIi    Decimal? @map("aliquota_ii") @db.Decimal(5, 2)
+  aliquotaIpi   Decimal? @map("aliquota_ipi") @db.Decimal(5, 2)
+  aliquotaPis   Decimal? @map("aliquota_pis") @db.Decimal(5, 2)
+  aliquotaCofins Decimal? @map("aliquota_cofins") @db.Decimal(5, 2)
+
+  // Anuentes
+  anuentes      String[] @default([])
+  requerLpco    Boolean  @default(false) @map("requer_lpco")
+  tipoLpco      String?  @map("tipo_lpco") @db.VarChar(50)
+
+  // Metadados
+  exTarifario   Boolean  @default(false) @map("ex_tarifario")
+  destaque      String?
+  setor         String?  @db.VarChar(50)
+
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("ncm_database")
+}
+
+// Órgãos Fiscalizadores (Anuentes)
+model Anuente {
+  id              Int      @id @default(autoincrement())
+  sigla           String   @unique @db.VarChar(20)
+  nomeCompleto    String   @map("nome_completo")
+  descricao       String?
+  tiposProduto    String[] @default([]) @map("tipos_produto")
+
+  // Custos de não-conformidade
+  multaMinima     Decimal? @map("multa_minima") @db.Decimal(10, 2)
+  multaMaxima     Decimal? @map("multa_maxima") @db.Decimal(10, 2)
+  tempoLiberacaoDias Int?  @map("tempo_liberacao_dias")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("anuentes")
+}
+
+// Tipos de Erro com Custos Variáveis
+model TipoErro {
+  id                    Int      @id @default(autoincrement())
+  codigo                String   @unique @db.VarChar(50)
+  nome                  String
+  descricao             String?
+  categoria             String?  @db.VarChar(50)
+
+  // Custos variáveis
+  custoBase             Decimal? @map("custo_base") @db.Decimal(10, 2)
+  custoPercentual       Decimal? @map("custo_percentual") @db.Decimal(5, 2)
+  custoMaximo           Decimal? @map("custo_maximo") @db.Decimal(10, 2)
+
+  // Multiplicadores por setor
+  multiplicadorQuimico    Decimal @default(1.0) @map("multiplicador_quimico") @db.Decimal(3, 2)
+  multiplicadorAlimentos  Decimal @default(1.0) @map("multiplicador_alimentos") @db.Decimal(3, 2)
+  multiplicadorEletronicos Decimal @default(1.0) @map("multiplicador_eletronicos") @db.Decimal(3, 2)
+  multiplicadorAutopecas  Decimal @default(1.0) @map("multiplicador_autopecas") @db.Decimal(3, 2)
+  multiplicadorCosmeticos Decimal @default(1.0) @map("multiplicador_cosmeticos") @db.Decimal(3, 2)
+
+  // Tempo de impacto
+  diasAtrasoMedio       Int?     @map("dias_atraso_medio")
+  demurrageDiario       Decimal  @default(1500) @map("demurrage_diario") @db.Decimal(10, 2)
+
+  severidade            String?  @db.VarChar(20)
+  fundamentacaoLegal    String?  @map("fundamentacao_legal")
+
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@map("tipos_erro")
+}
+
+// Histórico de Operações
+model Operacao {
+  id                String   @id @default(uuid())
+
+  // Documento original
+  arquivoNome       String?  @map("arquivo_nome")
+  arquivoUrl        String?  @map("arquivo_url")
+  arquivoTipo       String?  @map("arquivo_tipo") @db.VarChar(10)
+
+  // Dados extraídos pelo Gemini
+  dadosExtraidos    Json?    @map("dados_extraidos")
+
+  // Dados validados/corrigidos
+  dadosValidados    Json?    @map("dados_validados")
+
+  // Erros encontrados
+  erros             Json[]   @default([])
+
+  // Resultado
+  status            String?  @db.VarChar(20)
+  custoTotalErros   Decimal? @map("custo_total_erros") @db.Decimal(12, 2)
+  tempoEconomizadoMin Int?   @map("tempo_economizado_min")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("operacoes")
+}
