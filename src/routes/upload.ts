@@ -1,22 +1,15 @@
 import express from 'express';
 import multer from 'multer';
-import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient } from '@prisma/client';
+import { extractTextFromPDFBuffer } from '../utils/pdfParser';
+import { extractDataFromDocument } from '../services/geminiService';
+import { parseXML } from '../utils/xmlParser';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads'));
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${uuidv4()}-${file.originalname}`;
-    cb(null, uniqueName);
-  },
-});
+// Configure multer for MEMORY storage (no disk writes)
+const storage = multer.memoryStorage();
 
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedTypes = ['application/pdf', 'text/xml', 'application/xml'];
@@ -33,7 +26,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
 
-// POST /api/upload - Upload a document
+// POST /api/upload - Upload and process document in memory
 router.post('/', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -43,30 +36,70 @@ router.post('/', upload.single('file'), async (req, res) => {
     const file = req.file;
     const fileType = file.mimetype === 'application/pdf' ? 'PDF' : 'XML';
 
-    // Create operation record
+    console.log(`Processing ${fileType} file: ${file.originalname}, size: ${file.size} bytes`);
+
+    // Create operation record first
     const operation = await prisma.operacao.create({
       data: {
         arquivoNome: file.originalname,
-        arquivoUrl: `/uploads/${file.filename}`,
         arquivoTipo: fileType,
         status: 'PROCESSANDO',
       },
     });
 
-    res.json({
-      success: true,
-      operationId: operation.id,
-      file: {
-        name: file.originalname,
-        type: fileType,
-        size: file.size,
-        url: `/uploads/${file.filename}`,
-      },
-      message: 'Arquivo enviado com sucesso. Use /api/process para extrair os dados.',
-    });
+    try {
+      let extractedData: any = null;
+
+      // Process file from memory buffer
+      if (fileType === 'PDF') {
+        // Extract text from PDF buffer
+        const extractedText = await extractTextFromPDFBuffer(file.buffer);
+        console.log(`Extracted ${extractedText.length} characters from PDF`);
+
+        // Call Gemini to extract structured data
+        extractedData = await extractDataFromDocument(extractedText, 'PDF');
+      } else {
+        // XML processing
+        const xmlContent = file.buffer.toString('utf-8');
+        extractedData = await parseXML(xmlContent);
+      }
+
+      // Update operation with extracted data
+      const updatedOperation = await prisma.operacao.update({
+        where: { id: operation.id },
+        data: {
+          dadosExtraidos: extractedData,
+          status: 'EXTRAIDO',
+        },
+      });
+
+      console.log(`Operation ${operation.id} processed successfully`);
+
+      res.json({
+        success: true,
+        operationId: operation.id,
+        status: 'EXTRAIDO',
+        file: {
+          name: file.originalname,
+          type: fileType,
+          size: file.size,
+        },
+        dadosExtraidos: extractedData,
+        message: 'Arquivo processado com sucesso. Use /api/validate para validar.',
+      });
+
+    } catch (processError: any) {
+      // Update operation status to error
+      await prisma.operacao.update({
+        where: { id: operation.id },
+        data: { status: 'ERRO' },
+      });
+      throw processError;
+    }
+
   } catch (error: any) {
-    console.error('Upload error:', error);
-    res.status(500).json({ error: error.message || 'Erro ao fazer upload do arquivo' });
+    console.error('Upload/Process error:', error);
+    res.status(500).json({ error: error.message || 'Erro ao processar arquivo' });
   }
 });
 

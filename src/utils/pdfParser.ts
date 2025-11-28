@@ -1,25 +1,19 @@
 import pdf from 'pdf-parse';
 import fs from 'fs';
-import path from 'path';
 
-export async function extractTextFromPDF(filePath: string): Promise<string> {
+/**
+ * Extrai texto de um PDF a partir de um Buffer (processamento em memória)
+ */
+export async function extractTextFromPDFBuffer(buffer: Buffer): Promise<string> {
   try {
-    // Verificar se o arquivo existe
-    if (!fs.existsSync(filePath)) {
-      console.error('PDF file not found at:', filePath);
-      throw new Error(`Arquivo PDF não encontrado: ${filePath}`);
-    }
-
-    const dataBuffer = fs.readFileSync(filePath);
-
     // Verificar se o buffer tem conteúdo
-    if (dataBuffer.length === 0) {
-      throw new Error('Arquivo PDF está vazio');
+    if (!buffer || buffer.length === 0) {
+      throw new Error('Buffer do PDF está vazio');
     }
 
-    console.log(`Processing PDF: ${filePath}, size: ${dataBuffer.length} bytes`);
+    console.log(`Processing PDF from buffer, size: ${buffer.length} bytes`);
 
-    const data = await pdf(dataBuffer);
+    const data = await pdf(buffer);
 
     // Return extracted text
     if (!data.text || data.text.trim().length === 0) {
@@ -27,15 +21,10 @@ export async function extractTextFromPDF(filePath: string): Promise<string> {
       return '[PDF sem texto extraível - possivelmente baseado em imagem]';
     }
 
+    console.log(`PDF processed successfully, extracted ${data.text.length} characters`);
     return data.text;
   } catch (error: any) {
     console.error('PDF parsing error:', error);
-    console.error('File path attempted:', filePath);
-
-    // Verificar se é erro de arquivo não encontrado
-    if (error.code === 'ENOENT') {
-      throw new Error(`Arquivo PDF não encontrado no caminho: ${filePath}`);
-    }
 
     // Verificar se é erro de PDF inválido
     if (error.message && error.message.includes('Invalid')) {
@@ -43,6 +32,23 @@ export async function extractTextFromPDF(filePath: string): Promise<string> {
     }
 
     throw new Error(`Erro ao extrair texto do PDF: ${error.message || 'erro desconhecido'}`);
+  }
+}
+
+/**
+ * Extrai texto de um PDF a partir de um caminho de arquivo (legado)
+ */
+export async function extractTextFromPDF(filePath: string): Promise<string> {
+  try {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Arquivo PDF não encontrado: ${filePath}`);
+    }
+
+    const buffer = fs.readFileSync(filePath);
+    return extractTextFromPDFBuffer(buffer);
+  } catch (error: any) {
+    console.error('PDF file parsing error:', error);
+    throw error;
   }
 }
 
