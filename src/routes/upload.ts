@@ -1,8 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { PrismaClient } from '@prisma/client';
-import { extractTextFromPDFBuffer } from '../utils/pdfParser';
-import { extractDataFromDocument } from '../services/geminiService';
+import { runExtractionPipeline } from '../services/extractionPipeline';
 import { parseXML } from '../utils/xmlParser';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
@@ -88,27 +87,24 @@ router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, re
 
     try {
       let extractedData: any = null;
+      let pipelineMetadata: any = null;
 
-      // Process file from memory buffer
-      if (fileType === 'PDF') {
-        // Extract text from PDF buffer
-        const extractedText = await extractTextFromPDFBuffer(file.buffer);
-        console.log(`Extracted ${extractedText.length} characters from PDF`);
-
-        // Call AI to extract structured data (passes buffer for Vision fallback)
-        extractedData = await extractDataFromDocument(extractedText, 'PDF', file.buffer);
-      } else if (fileType === 'IMAGE') {
-        // Image processing - use Vision API directly
-        console.log('Processing image with Vision API...');
-        extractedData = await extractDataFromDocument('', 'IMAGE', file.buffer, file.mimetype);
+      // Process file using two-stage pipeline
+      if (fileType === 'PDF' || fileType === 'IMAGE') {
+        // Use new extraction pipeline (Groq scraper + GPT-4o analyst)
+        console.log(`[Upload] Running extraction pipeline for ${fileType}...`);
+        const result = await runExtractionPipeline(fileType, file.buffer, file.mimetype);
+        extractedData = result.classified;
+        pipelineMetadata = result.metadata;
+        console.log(`[Upload] Pipeline complete: ${result.metadata.scraperUsed}, ${result.metadata.processingTimeMs}ms`);
       } else {
-        // XML processing
+        // XML processing (direct parse, no AI needed)
         const xmlContent = file.buffer.toString('utf-8');
         extractedData = await parseXML(xmlContent);
       }
 
       // Update operation with extracted data
-      const updatedOperation = await prisma.operacao.update({
+      await prisma.operacao.update({
         where: { id: operation.id },
         data: {
           dadosExtraidos: extractedData,
@@ -128,6 +124,7 @@ router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, re
           size: file.size,
         },
         dadosExtraidos: extractedData,
+        pipeline: pipelineMetadata,
         message: 'Arquivo processado com sucesso. Use /api/validate para validar.',
       });
 
