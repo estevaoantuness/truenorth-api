@@ -84,6 +84,20 @@ model TipoErro {
   @@map("tipos_erro")
 }
 
+// Usuários do sistema
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // bcrypt hash
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  operacoes Operacao[]
+
+  @@map("users")
+}
+
 // Histórico de Operações
 model Operacao {
   id                String   @id @default(uuid())
@@ -106,6 +120,10 @@ model Operacao {
   status            String?  @db.VarChar(20)
   custoTotalErros   Decimal? @map("custo_total_erros") @db.Decimal(12, 2)
   tempoEconomizadoMin Int?   @map("tempo_economizado_min")
+
+  // Vínculo com usuário (opcional)
+  userId            String?  @map("user_id")
+  user              User?    @relation(fields: [userId], references: [id])
 
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")

@@ -11,6 +11,7 @@ import processRouter from './routes/process';
 import validateRouter from './routes/validate';
 import operationsRouter from './routes/operations';
 import ncmRouter from './routes/ncm';
+import authRouter from './routes/auth';
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.get('/health', (req, res) => {
 });
 
 // API Routes
+app.use('/api/auth', authRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/process', processRouter);
 app.use('/api/validate', validateRouter);
