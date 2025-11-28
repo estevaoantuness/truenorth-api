@@ -1,14 +1,22 @@
 /**
  * Analyst Service - Stage 2 of the extraction pipeline
- * Uses GPT-4o with database context to classify and enrich extracted data
+ * Uses Groq (Llama 3.3) with database context to classify and enrich extracted data
+ * 100% Groq - no OpenAI dependency for cost efficiency
  */
 
-import OpenAI from 'openai';
+import Groq from 'groq-sdk';
 import { PrismaClient } from '@prisma/client';
 import { RawExtractionResult, ClassifiedExtractionResult, DatabaseContext } from './scrapers/types';
 
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
+
+function getGroqClient(): Groq {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error('GROQ_API_KEY não configurada');
+  }
+  return new Groq({ apiKey });
+}
 
 /**
  * Detect sector from item descriptions
@@ -165,11 +173,15 @@ export async function analyzeExtraction(rawData: RawExtractionResult): Promise<C
   const dbContext = await loadDatabaseContext(sector);
   console.log(`[Analyst] Loaded ${dbContext.ncms.length} NCMs and ${dbContext.anuentes.length} anuentes`);
 
-  // Build prompt and call GPT-4o
+  // Build prompt and call Groq (Llama 3.3)
   const prompt = buildAnalystPrompt(rawData, dbContext, sector);
+  const groq = getGroqClient();
+  const model = process.env.GROQ_ANALYST_MODEL || 'llama-3.3-70b-versatile';
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+  console.log(`[Analyst] Calling Groq (${model})...`);
+
+  const response = await groq.chat.completions.create({
+    model,
     messages: [
       {
         role: 'system',
@@ -185,7 +197,7 @@ export async function analyzeExtraction(rawData: RawExtractionResult): Promise<C
   });
 
   const content = response.choices[0]?.message?.content || '';
-  console.log(`[Analyst] Response received (${content.length} chars)`);
+  console.log(`[Analyst] Groq response received (${content.length} chars)`);
 
   return parseAnalystResponse(content, rawData);
 }

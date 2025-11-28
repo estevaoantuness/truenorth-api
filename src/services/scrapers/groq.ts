@@ -1,5 +1,6 @@
 /**
  * Groq Scraper - Uses Llama 3 via Groq for fast, cheap document extraction
+ * Supports both text (Llama 3.3) and vision (Llama 3.2 Vision) extraction
  * This is Stage 1 of the pipeline - raw extraction without classification
  */
 
@@ -43,14 +44,13 @@ Formato esperado:
   "observations": ["observações relevantes"],
   "missing_fields": ["campos não encontrados"]
 }
-
-DOCUMENTO:
 `;
 
 export class GroqScraper implements ScraperProvider {
   name = 'groq';
   private client: Groq;
-  private model: string;
+  private textModel: string;
+  private visionModel: string;
 
   constructor() {
     const apiKey = process.env.GROQ_API_KEY;
@@ -58,14 +58,15 @@ export class GroqScraper implements ScraperProvider {
       throw new Error('GROQ_API_KEY não configurada');
     }
     this.client = new Groq({ apiKey });
-    this.model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    this.textModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    this.visionModel = process.env.GROQ_VISION_MODEL || 'llama-3.2-90b-vision-preview';
   }
 
   async extractFromText(text: string): Promise<RawExtractionResult> {
-    console.log(`[GroqScraper] Extracting from text (${text.length} chars) using ${this.model}...`);
+    console.log(`[GroqScraper] Extracting from text (${text.length} chars) using ${this.textModel}...`);
 
     const response = await this.client.chat.completions.create({
-      model: this.model,
+      model: this.textModel,
       messages: [
         {
           role: 'system',
@@ -73,7 +74,7 @@ export class GroqScraper implements ScraperProvider {
         },
         {
           role: 'user',
-          content: SCRAPING_PROMPT + text,
+          content: SCRAPING_PROMPT + '\nDOCUMENTO:\n' + text,
         },
       ],
       temperature: 0.1,
@@ -86,13 +87,49 @@ export class GroqScraper implements ScraperProvider {
     return this.parseResponse(content);
   }
 
-  async extractFromImage(_imageBuffer: Buffer, _mimeType: string): Promise<RawExtractionResult> {
-    // Groq doesn't support image input - throw error to fallback to OpenAI
-    throw new Error('Groq não suporta extração de imagens. Use OpenAI Vision.');
+  async extractFromImage(imageBuffer: Buffer, mimeType: string): Promise<RawExtractionResult> {
+    console.log(`[GroqScraper] Extracting from image (${imageBuffer.length} bytes) using ${this.visionModel}...`);
+
+    // Convert buffer to base64
+    const base64Image = imageBuffer.toString('base64');
+
+    // Normalize mime type
+    let normalizedMimeType = mimeType;
+    if (mimeType.includes('heic') || mimeType.includes('heif')) {
+      normalizedMimeType = 'image/jpeg';
+    }
+
+    const response = await this.client.chat.completions.create({
+      model: this.visionModel,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: SCRAPING_PROMPT + '\n\nAnalise a imagem do documento acima e extraia os dados.',
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:${normalizedMimeType};base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      temperature: 0.1,
+      max_tokens: 4000,
+    });
+
+    const content = response.choices[0]?.message?.content || '';
+    console.log(`[GroqScraper] Vision response received (${content.length} chars)`);
+
+    return this.parseResponse(content);
   }
 
   supportsImageExtraction(): boolean {
-    return false;
+    return true;
   }
 
   private parseResponse(text: string): RawExtractionResult {
