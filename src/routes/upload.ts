@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { extractTextFromPDFBuffer } from '../utils/pdfParser';
 import { extractDataFromDocument } from '../services/geminiService';
 import { parseXML } from '../utils/xmlParser';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -41,28 +42,35 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
 });
 
-// POST /api/upload - Upload and process document in memory
-router.post('/', upload.single('file'), async (req, res) => {
+// POST /api/upload - Upload and process document in memory (requires auth)
+router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Nenhum arquivo enviado' });
     }
 
+    if (!req.user?.userId) {
+      return res.status(401).json({ error: 'Usuário não autenticado' });
+    }
+
     const file = req.file;
+    const userId = req.user.userId;
+
     // Determine file type by extension (more reliable than MIME)
     const fileName = file.originalname.toLowerCase();
     const fileType = fileName.endsWith('.pdf') ? 'PDF' :
                      fileName.endsWith('.xml') ? 'XML' :
                      file.mimetype === 'application/pdf' ? 'PDF' : 'XML';
 
-    console.log(`Processing ${fileType} file: ${file.originalname}, size: ${file.size} bytes`);
+    console.log(`Processing ${fileType} file: ${file.originalname}, size: ${file.size} bytes, user: ${userId}`);
 
-    // Create operation record first
+    // Create operation record linked to user
     const operation = await prisma.operacao.create({
       data: {
         arquivoNome: file.originalname,
         arquivoTipo: fileType,
         status: 'PROCESSANDO',
+        userId: userId,
       },
     });
 

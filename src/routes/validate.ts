@@ -1,18 +1,20 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { validateOperation, calculateCosts } from '../services/validationService';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// POST /api/validate/:operationId - Validate extracted data
-router.post('/:operationId', async (req, res) => {
+// POST /api/validate/:operationId - Validate extracted data (requires auth, only own operations)
+router.post('/:operationId', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { operationId } = req.params;
+    const userId = req.user!.userId;
 
-    // Get operation
-    const operation = await prisma.operacao.findUnique({
-      where: { id: operationId },
+    // Get operation (only if belongs to user)
+    const operation = await prisma.operacao.findFirst({
+      where: { id: operationId, userId },
     });
 
     if (!operation) {
