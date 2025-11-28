@@ -1,21 +1,21 @@
 /**
  * Analyst Service - Stage 2 of the extraction pipeline
- * Uses Groq (Llama 3.3) with database context to classify and enrich extracted data
- * 100% Groq - no OpenAI dependency for cost efficiency
+ * Uses Google Gemini with database context to classify and enrich extracted data
+ * 100% Gemini - cost effective and powerful
  */
 
-import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PrismaClient } from '@prisma/client';
 import { RawExtractionResult, ClassifiedExtractionResult, DatabaseContext } from './scrapers/types';
 
 const prisma = new PrismaClient();
 
-function getGroqClient(): Groq {
-  const apiKey = process.env.GROQ_API_KEY;
+function getGeminiClient(): GoogleGenerativeAI {
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error('GROQ_API_KEY não configurada');
+    throw new Error('GEMINI_API_KEY não configurada');
   }
-  return new Groq({ apiKey });
+  return new GoogleGenerativeAI(apiKey);
 }
 
 /**
@@ -173,31 +173,31 @@ export async function analyzeExtraction(rawData: RawExtractionResult): Promise<C
   const dbContext = await loadDatabaseContext(sector);
   console.log(`[Analyst] Loaded ${dbContext.ncms.length} NCMs and ${dbContext.anuentes.length} anuentes`);
 
-  // Build prompt and call Groq (Llama 3.3)
+  // Build prompt and call Gemini
   const prompt = buildAnalystPrompt(rawData, dbContext, sector);
-  const groq = getGroqClient();
-  const model = process.env.GROQ_ANALYST_MODEL || 'llama-3.3-70b-versatile';
+  const genAI = getGeminiClient();
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
-  console.log(`[Analyst] Calling Groq (${model})...`);
+  console.log(`[Analyst] Calling Gemini (${modelName})...`);
 
-  const response = await groq.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: 'system',
-        content: 'Você é um especialista em classificação fiscal de mercadorias importadas. Retorne apenas JSON válido.',
-      },
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const result = await model.generateContent({
+    contents: [
       {
         role: 'user',
-        content: prompt,
+        parts: [{ text: 'Você é um especialista em classificação fiscal de mercadorias importadas. Retorne apenas JSON válido.\n\n' + prompt }],
       },
     ],
-    temperature: 0.2,
-    max_tokens: 4000,
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 4000,
+    },
   });
 
-  const content = response.choices[0]?.message?.content || '';
-  console.log(`[Analyst] Groq response received (${content.length} chars)`);
+  const response = await result.response;
+  const content = response.text();
+  console.log(`[Analyst] Gemini response received (${content.length} chars)`);
 
   return parseAnalystResponse(content, rawData);
 }

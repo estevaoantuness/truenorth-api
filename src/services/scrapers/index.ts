@@ -1,56 +1,30 @@
 /**
  * Scraper Factory - Creates the appropriate scraper based on configuration
+ * Default: Gemini (100% Google AI)
  */
 
 import { ScraperProvider, ScraperProviderType } from './types';
-import { GroqScraper } from './groq';
-import { OpenAIScraper } from './openai';
+import { GeminiScraper } from './gemini';
 
 /**
  * Get the configured scraper provider
- * Defaults to 'groq' if SCRAPER_PROVIDER is not set
+ * Defaults to 'gemini' - 100% Gemini for cost efficiency
  */
 export function getScraperProvider(): ScraperProvider {
-  const providerType = (process.env.SCRAPER_PROVIDER || 'groq') as ScraperProviderType;
+  const providerType = (process.env.SCRAPER_PROVIDER || 'gemini') as ScraperProviderType;
 
   console.log(`[ScraperFactory] Creating scraper: ${providerType}`);
 
-  switch (providerType) {
-    case 'groq':
-      try {
-        return new GroqScraper();
-      } catch (error) {
-        console.warn('[ScraperFactory] Groq unavailable, falling back to OpenAI');
-        return new OpenAIScraper();
-      }
-
-    case 'openai':
-      return new OpenAIScraper();
-
-    case 'gemini':
-      // Future: implement GeminiScraper
-      console.warn('[ScraperFactory] Gemini not implemented, using OpenAI');
-      return new OpenAIScraper();
-
-    default:
-      console.warn(`[ScraperFactory] Unknown provider: ${providerType}, using Groq`);
-      return new GroqScraper();
-  }
+  // 100% Gemini - always use Gemini
+  return new GeminiScraper();
 }
 
 /**
  * Get a scraper that supports image extraction
- * Falls back to OpenAI if the configured scraper doesn't support images
+ * Gemini supports multimodal (text + images)
  */
 export function getImageScraper(): ScraperProvider {
-  const mainScraper = getScraperProvider();
-
-  if (mainScraper.supportsImageExtraction()) {
-    return mainScraper;
-  }
-
-  console.log('[ScraperFactory] Main scraper does not support images, using OpenAI');
-  return new OpenAIScraper();
+  return new GeminiScraper();
 }
 
 export * from './types';
