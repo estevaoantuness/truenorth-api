@@ -12,11 +12,26 @@ const prisma = new PrismaClient();
 const storage = multer.memoryStorage();
 
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedTypes = ['application/pdf', 'text/xml', 'application/xml'];
-  if (allowedTypes.includes(file.mimetype)) {
+  // Accept by MIME type
+  const allowedMimeTypes = [
+    'application/pdf',
+    'text/xml',
+    'application/xml',
+    'application/octet-stream', // Some systems send PDF as this
+  ];
+
+  // Accept by file extension
+  const fileName = file.originalname.toLowerCase();
+  const isPdfExtension = fileName.endsWith('.pdf');
+  const isXmlExtension = fileName.endsWith('.xml');
+
+  console.log(`File upload: ${file.originalname}, MIME: ${file.mimetype}`);
+
+  if (allowedMimeTypes.includes(file.mimetype) || isPdfExtension || isXmlExtension) {
     cb(null, true);
   } else {
-    cb(new Error('Tipo de arquivo não suportado. Use PDF ou XML.'));
+    console.error(`Rejected file: ${file.originalname}, MIME: ${file.mimetype}`);
+    cb(new Error(`Tipo de arquivo não suportado (${file.mimetype}). Use PDF ou XML.`));
   }
 };
 
@@ -34,7 +49,11 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     const file = req.file;
-    const fileType = file.mimetype === 'application/pdf' ? 'PDF' : 'XML';
+    // Determine file type by extension (more reliable than MIME)
+    const fileName = file.originalname.toLowerCase();
+    const fileType = fileName.endsWith('.pdf') ? 'PDF' :
+                     fileName.endsWith('.xml') ? 'XML' :
+                     file.mimetype === 'application/pdf' ? 'PDF' : 'XML';
 
     console.log(`Processing ${fileType} file: ${file.originalname}, size: ${file.size} bytes`);
 
