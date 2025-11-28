@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
 
 const EXTRACTION_PROMPT = `Você é um especialista em comércio exterior brasileiro. Analise este documento de importação (invoice comercial) e extraia os seguintes dados em formato JSON:
 
@@ -46,46 +48,101 @@ IMPORTANTE:
 TEXTO DO DOCUMENTO:
 `;
 
+/**
+ * Extract data using Gemini API
+ */
+async function extractWithGemini(documentText: string): Promise<any> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const prompt = EXTRACTION_PROMPT + documentText;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  const text = response.text();
+
+  return parseJsonResponse(text);
+}
+
+/**
+ * Extract data using OpenAI API (fallback)
+ */
+async function extractWithOpenAI(documentText: string): Promise<any> {
+  const prompt = EXTRACTION_PROMPT + documentText;
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini', // Cheapest and fast
+    messages: [
+      {
+        role: 'system',
+        content: 'Você é um especialista em comércio exterior brasileiro. Retorne apenas JSON válido, sem texto adicional.',
+      },
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4000,
+  });
+
+  const text = response.choices[0]?.message?.content || '';
+  return parseJsonResponse(text);
+}
+
+/**
+ * Parse JSON from AI response (handles markdown code blocks)
+ */
+function parseJsonResponse(text: string): any {
+  let jsonText = text;
+
+  // Handle markdown code blocks
+  const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/);
+  if (jsonMatch) {
+    jsonText = jsonMatch[1];
+  } else {
+    // Try to find raw JSON
+    const jsonStart = text.indexOf('{');
+    const jsonEnd = text.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      jsonText = text.substring(jsonStart, jsonEnd + 1);
+    }
+  }
+
+  return JSON.parse(jsonText);
+}
+
 export async function extractDataFromDocument(
   documentText: string,
   documentType: 'PDF' | 'XML'
 ): Promise<any> {
-  try {
-    // If no API key, return demo data
-    if (!process.env.GEMINI_API_KEY) {
-      console.warn('GEMINI_API_KEY not set, returning demo extraction');
-      return createDemoExtraction(documentText);
+  // Try Gemini first
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      console.log('Attempting extraction with Gemini...');
+      const result = await extractWithGemini(documentText);
+      console.log('Gemini extraction successful');
+      return result;
+    } catch (error: any) {
+      console.error('Gemini extraction failed:', error.message);
+      // Fall through to OpenAI
     }
-
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const prompt = EXTRACTION_PROMPT + documentText;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-
-    // Extract JSON from response (handle markdown code blocks)
-    let jsonText = text;
-    const jsonMatch = text.match(/```json\n?([\s\S]*?)\n?```/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[1];
-    } else {
-      // Try to find raw JSON
-      const jsonStart = text.indexOf('{');
-      const jsonEnd = text.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        jsonText = text.substring(jsonStart, jsonEnd + 1);
-      }
-    }
-
-    const extractedData = JSON.parse(jsonText);
-    return extractedData;
-  } catch (error) {
-    console.error('Gemini extraction error:', error);
-    // Return demo data on error
-    return createDemoExtraction(documentText);
   }
+
+  // Fallback to OpenAI
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log('Attempting extraction with OpenAI (fallback)...');
+      const result = await extractWithOpenAI(documentText);
+      console.log('OpenAI extraction successful');
+      return result;
+    } catch (error: any) {
+      console.error('OpenAI extraction failed:', error.message);
+      // Fall through to demo data
+    }
+  }
+
+  // Last resort: demo data
+  console.warn('All AI services failed, returning demo extraction');
+  return createDemoExtraction(documentText);
 }
 
 function createDemoExtraction(documentText: string): any {
