@@ -75,8 +75,8 @@ router.post('/', upload.single('file'), async (req, res) => {
         const extractedText = await extractTextFromPDFBuffer(file.buffer);
         console.log(`Extracted ${extractedText.length} characters from PDF`);
 
-        // Call Gemini to extract structured data
-        extractedData = await extractDataFromDocument(extractedText, 'PDF');
+        // Call AI to extract structured data (passes buffer for Vision fallback)
+        extractedData = await extractDataFromDocument(extractedText, 'PDF', file.buffer);
       } else {
         // XML processing
         const xmlContent = file.buffer.toString('utf-8');

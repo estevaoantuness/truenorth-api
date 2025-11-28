@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
+import { pdfToPng } from 'pdf-to-png-converter';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -63,7 +64,7 @@ async function extractWithGemini(documentText: string): Promise<any> {
 }
 
 /**
- * Extract data using OpenAI API (fallback)
+ * Extract data using OpenAI API (text-based)
  */
 async function extractWithOpenAI(documentText: string): Promise<any> {
   const prompt = EXTRACTION_PROMPT + documentText;
@@ -78,6 +79,63 @@ async function extractWithOpenAI(documentText: string): Promise<any> {
       {
         role: 'user',
         content: prompt,
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4000,
+  });
+
+  const text = response.choices[0]?.message?.content || '';
+  return parseJsonResponse(text);
+}
+
+/**
+ * Extract data using OpenAI Vision API (for image-based PDFs)
+ */
+async function extractWithVision(pdfBuffer: Buffer): Promise<any> {
+  console.log('Converting PDF to images for Vision analysis...');
+
+  // Convert PDF to PNG images - pass the underlying ArrayBuffer
+  const pngPages = await pdfToPng(pdfBuffer.buffer.slice(pdfBuffer.byteOffset, pdfBuffer.byteOffset + pdfBuffer.byteLength), {
+    disableFontFace: true,
+    useSystemFonts: true,
+    viewportScale: 2.0, // Higher quality
+  });
+
+  if (pngPages.length === 0) {
+    throw new Error('Failed to convert PDF to images');
+  }
+
+  console.log(`Converted ${pngPages.length} page(s) to images`);
+
+  // Prepare images for Vision API (first 3 pages max to save costs)
+  const imageContents = pngPages
+    .slice(0, 3)
+    .filter((page) => page.content) // Filter out pages without content
+    .map((page) => ({
+      type: 'image_url' as const,
+      image_url: {
+        url: `data:image/png;base64,${Buffer.from(page.content!).toString('base64')}`,
+        detail: 'high' as const,
+      },
+    }));
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o', // Vision requires gpt-4o (not mini)
+    messages: [
+      {
+        role: 'system',
+        content: 'Você é um especialista em comércio exterior brasileiro. Analise a imagem da invoice e extraia os dados em formato JSON válido, sem texto adicional.',
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: EXTRACTION_PROMPT + '\n\nAnalise a(s) imagem(s) da invoice acima e extraia os dados.',
+          },
+          ...imageContents,
+        ],
       },
     ],
     temperature: 0.1,
@@ -112,14 +170,33 @@ function parseJsonResponse(text: string): any {
 
 export async function extractDataFromDocument(
   documentText: string,
-  documentType: 'PDF' | 'XML'
+  documentType: 'PDF' | 'XML',
+  pdfBuffer?: Buffer
 ): Promise<any> {
-  // Use OpenAI as primary (more reliable)
-  if (process.env.OPENAI_API_KEY) {
+  // Check if we need Vision (empty or very short text from PDF)
+  const needsVision = documentType === 'PDF' &&
+    pdfBuffer &&
+    (!documentText || documentText.length < 100 || documentText.includes('[PDF sem texto extraível'));
+
+  // Try Vision first if needed (for image-based PDFs)
+  if (needsVision && process.env.OPENAI_API_KEY && pdfBuffer) {
     try {
-      console.log('Attempting extraction with OpenAI...');
+      console.log('PDF appears to be image-based, using Vision API...');
+      const result = await extractWithVision(pdfBuffer);
+      console.log('Vision extraction successful');
+      return result;
+    } catch (error: any) {
+      console.error('Vision extraction failed:', error.message);
+      // Fall through to text-based extraction
+    }
+  }
+
+  // Use OpenAI text extraction as primary
+  if (process.env.OPENAI_API_KEY && documentText && documentText.length > 50) {
+    try {
+      console.log('Attempting extraction with OpenAI (text)...');
       const result = await extractWithOpenAI(documentText);
-      console.log('OpenAI extraction successful');
+      console.log('OpenAI text extraction successful');
       return result;
     } catch (error: any) {
       console.error('OpenAI extraction failed:', error.message);
@@ -128,7 +205,7 @@ export async function extractDataFromDocument(
   }
 
   // Fallback to Gemini
-  if (process.env.GEMINI_API_KEY) {
+  if (process.env.GEMINI_API_KEY && documentText && documentText.length > 50) {
     try {
       console.log('Attempting extraction with Gemini (fallback)...');
       const result = await extractWithGemini(documentText);
