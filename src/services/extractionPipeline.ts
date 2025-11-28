@@ -47,11 +47,20 @@ export async function runExtractionPipeline(
 
   } else if (documentType === 'PDF') {
     // PDF: try text extraction first, fallback to Vision
-    const textContent = await extractTextFromPDFBuffer(fileBuffer);
-    const needsVision = !textContent || textContent.length < 100 || textContent.includes('[PDF sem texto');
+    let textContent = '';
+    let pdfParseError = false;
+
+    try {
+      textContent = await extractTextFromPDFBuffer(fileBuffer);
+    } catch (error: any) {
+      console.warn('[Pipeline] PDF text extraction failed:', error.message);
+      pdfParseError = true;
+    }
+
+    const needsVision = pdfParseError || !textContent || textContent.length < 100 || textContent.includes('[PDF sem texto');
 
     if (needsVision) {
-      console.log('[Pipeline] PDF appears to be image-based, using Vision...');
+      console.log('[Pipeline] PDF needs Vision (parse error or image-based), using Vision...');
       raw = await extractPdfWithVision(fileBuffer);
       scraperUsed = 'openai-vision';
       extractionMethod = 'vision';
