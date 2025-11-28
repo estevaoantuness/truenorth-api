@@ -19,20 +19,28 @@ const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCa
     'text/xml',
     'application/xml',
     'application/octet-stream', // Some systems send PDF as this
+    // Image types
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/webp',
+    'image/heic',
+    'image/heif',
   ];
 
   // Accept by file extension
   const fileName = file.originalname.toLowerCase();
   const isPdfExtension = fileName.endsWith('.pdf');
   const isXmlExtension = fileName.endsWith('.xml');
+  const isImageExtension = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif'].some(ext => fileName.endsWith(ext));
 
   console.log(`File upload: ${file.originalname}, MIME: ${file.mimetype}`);
 
-  if (allowedMimeTypes.includes(file.mimetype) || isPdfExtension || isXmlExtension) {
+  if (allowedMimeTypes.includes(file.mimetype) || isPdfExtension || isXmlExtension || isImageExtension) {
     cb(null, true);
   } else {
     console.error(`Rejected file: ${file.originalname}, MIME: ${file.mimetype}`);
-    cb(new Error(`Tipo de arquivo não suportado (${file.mimetype}). Use PDF ou XML.`));
+    cb(new Error(`Tipo de arquivo não suportado (${file.mimetype}). Use PDF, XML ou imagem (PNG, JPG, WEBP).`));
   }
 };
 
@@ -58,8 +66,12 @@ router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, re
 
     // Determine file type by extension (more reliable than MIME)
     const fileName = file.originalname.toLowerCase();
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.heic', '.heif'];
+    const isImage = imageExtensions.some(ext => fileName.endsWith(ext)) || file.mimetype.startsWith('image/');
+
     const fileType = fileName.endsWith('.pdf') ? 'PDF' :
                      fileName.endsWith('.xml') ? 'XML' :
+                     isImage ? 'IMAGE' :
                      file.mimetype === 'application/pdf' ? 'PDF' : 'XML';
 
     console.log(`Processing ${fileType} file: ${file.originalname}, size: ${file.size} bytes, user: ${userId}`);
@@ -85,6 +97,10 @@ router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, re
 
         // Call AI to extract structured data (passes buffer for Vision fallback)
         extractedData = await extractDataFromDocument(extractedText, 'PDF', file.buffer);
+      } else if (fileType === 'IMAGE') {
+        // Image processing - use Vision API directly
+        console.log('Processing image with Vision API...');
+        extractedData = await extractDataFromDocument('', 'IMAGE', file.buffer, file.mimetype);
       } else {
         // XML processing
         const xmlContent = file.buffer.toString('utf-8');

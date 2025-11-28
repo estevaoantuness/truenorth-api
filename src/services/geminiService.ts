@@ -168,21 +168,84 @@ function parseJsonResponse(text: string): any {
   return JSON.parse(jsonText);
 }
 
+/**
+ * Extract data from an image buffer directly using Vision API
+ */
+async function extractFromImageBuffer(imageBuffer: Buffer, mimeType: string): Promise<any> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key not configured for image processing');
+  }
+
+  console.log(`Processing image directly with Vision API, size: ${imageBuffer.length} bytes, type: ${mimeType}`);
+
+  // Convert HEIC/HEIF to a supported format mention
+  const supportedMimeType = mimeType.includes('heic') || mimeType.includes('heif')
+    ? 'image/jpeg' // OpenAI will handle the conversion
+    : mimeType;
+
+  const base64Image = imageBuffer.toString('base64');
+
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content: 'Você é um especialista em comércio exterior brasileiro. Analise a imagem da invoice e extraia os dados em formato JSON válido, sem texto adicional.',
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: EXTRACTION_PROMPT + '\n\nAnalise a imagem da invoice acima e extraia os dados.',
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${supportedMimeType};base64,${base64Image}`,
+              detail: 'high',
+            },
+          },
+        ],
+      },
+    ],
+    temperature: 0.1,
+    max_tokens: 4000,
+  });
+
+  const text = response.choices[0]?.message?.content || '';
+  return parseJsonResponse(text);
+}
+
 export async function extractDataFromDocument(
   documentText: string,
-  documentType: 'PDF' | 'XML',
-  pdfBuffer?: Buffer
+  documentType: 'PDF' | 'XML' | 'IMAGE',
+  fileBuffer?: Buffer,
+  mimeType?: string
 ): Promise<any> {
+  // Handle IMAGE type directly
+  if (documentType === 'IMAGE' && fileBuffer) {
+    try {
+      console.log('Processing image file with Vision API...');
+      const result = await extractFromImageBuffer(fileBuffer, mimeType || 'image/jpeg');
+      console.log('Image extraction successful');
+      return result;
+    } catch (error: any) {
+      console.error('Image extraction failed:', error.message);
+      throw new Error('Falha ao processar imagem: ' + error.message);
+    }
+  }
+
   // Check if we need Vision (empty or very short text from PDF)
   const needsVision = documentType === 'PDF' &&
-    pdfBuffer &&
+    fileBuffer &&
     (!documentText || documentText.length < 100 || documentText.includes('[PDF sem texto extraível'));
 
   // Try Vision first if needed (for image-based PDFs)
-  if (needsVision && process.env.OPENAI_API_KEY && pdfBuffer) {
+  if (needsVision && process.env.OPENAI_API_KEY && fileBuffer) {
     try {
       console.log('PDF appears to be image-based, using Vision API...');
-      const result = await extractWithVision(pdfBuffer);
+      const result = await extractWithVision(fileBuffer);
       console.log('Vision extraction successful');
       return result;
     } catch (error: any) {
