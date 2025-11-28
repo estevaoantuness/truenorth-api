@@ -27,11 +27,17 @@ router.post('/:operationId', async (req, res) => {
       return res.status(400).json({ error: 'Operação não possui arquivo associado' });
     }
 
-    // Get file path
-    const filePath = path.join(__dirname, '../..', operation.arquivoUrl);
+    // Get file path - arquivoUrl is like "/uploads/filename.pdf"
+    // Need to construct proper path relative to project root
+    const uploadsDir = path.join(__dirname, '../../uploads');
+    const fileName = operation.arquivoUrl.replace('/uploads/', '');
+    const filePath = path.join(uploadsDir, fileName);
+
+    console.log('Processing file:', { arquivoUrl: operation.arquivoUrl, filePath, uploadsDir });
 
     if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Arquivo não encontrado no servidor' });
+      console.error('File not found:', filePath);
+      return res.status(404).json({ error: `Arquivo não encontrado: ${filePath}` });
     }
 
     let extractedText = '';
