@@ -114,28 +114,28 @@ export async function extractDataFromDocument(
   documentText: string,
   documentType: 'PDF' | 'XML'
 ): Promise<any> {
-  // Try Gemini first
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      console.log('Attempting extraction with Gemini...');
-      const result = await extractWithGemini(documentText);
-      console.log('Gemini extraction successful');
-      return result;
-    } catch (error: any) {
-      console.error('Gemini extraction failed:', error.message);
-      // Fall through to OpenAI
-    }
-  }
-
-  // Fallback to OpenAI
+  // Use OpenAI as primary (more reliable)
   if (process.env.OPENAI_API_KEY) {
     try {
-      console.log('Attempting extraction with OpenAI (fallback)...');
+      console.log('Attempting extraction with OpenAI...');
       const result = await extractWithOpenAI(documentText);
       console.log('OpenAI extraction successful');
       return result;
     } catch (error: any) {
       console.error('OpenAI extraction failed:', error.message);
+      // Fall through to Gemini
+    }
+  }
+
+  // Fallback to Gemini
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      console.log('Attempting extraction with Gemini (fallback)...');
+      const result = await extractWithGemini(documentText);
+      console.log('Gemini extraction successful');
+      return result;
+    } catch (error: any) {
+      console.error('Gemini extraction failed:', error.message);
       // Fall through to demo data
     }
   }
