@@ -71,6 +71,7 @@ export interface ClassifiedExtractionResult {
   campos_faltando: string[];
   setor_detectado?: string;
   anuentes_operacao?: string[];
+  feedback_especialista?: string;
 }
 
 /**

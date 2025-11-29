@@ -161,8 +161,16 @@ RETORNE JSON no formato:
   "observacoes": ["lista de observações"],
   "campos_faltando": ["campos não encontrados"],
   "setor_detectado": "${sector}",
-  "anuentes_operacao": ["lista única de anuentes para toda operação"]
+  "anuentes_operacao": ["lista única de anuentes para toda operação"],
+  "feedback_especialista": "1-3 frases de dica personalizada"
 }
+
+FEEDBACK ESPECIALISTA:
+Ao final, gere um "feedback_especialista" com 1-3 frases curtas que:
+- Seja direto mas amigável (tom de consultor experiente)
+- Destaque algo importante DESTA operação específica (setor, anuentes, NCM, valor, peso)
+- Dê uma dica prática baseada nos dados extraídos
+- NÃO seja genérico - fale especificamente sobre ESTA invoice
 
 Retorne APENAS o JSON, sem texto adicional.`;
 }
@@ -266,6 +274,7 @@ function parseAnalystResponse(text: string, fallbackData: RawExtractionResult): 
       campos_faltando: parsed.campos_faltando || fallbackData.missing_fields || [],
       setor_detectado: parsed.setor_detectado,
       anuentes_operacao: parsed.anuentes_operacao || [],
+      feedback_especialista: parsed.feedback_especialista || null,
     };
   } catch (error) {
     console.error('[Analyst] Failed to parse response:', error);
