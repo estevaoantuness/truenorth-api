@@ -174,12 +174,26 @@ RETORNE JSON no formato:
   "alerta_subfaturamento": "string com alerta OU null se ok"
 }
 
-FEEDBACK ESPECIALISTA:
-Ao final, gere um "feedback_especialista" com 1-3 frases curtas que:
-- Seja direto mas amigável (tom de consultor experiente)
-- Destaque algo importante DESTA operação específica (setor, anuentes, NCM, valor, peso)
-- Dê uma dica prática baseada nos dados extraídos
-- NÃO seja genérico - fale especificamente sobre ESTA invoice
+FEEDBACK ESPECIALISTA (OBRIGATÓRIO - campo "feedback_especialista"):
+Você é um consultor sênior de comércio exterior com 20+ anos de experiência.
+Gere um feedback técnico e autoritativo que DEVE conter:
+
+1. DADOS CONCRETOS: Mencione o NCM principal, país de origem e valor da operação
+2. RISCO IDENTIFICADO: Aponte o principal ponto de atenção desta invoice específica
+3. CONTEXTO DO SETOR: Dica específica baseada no setor detectado:
+   - QUÍMICA: licenças ANVISA/IBAMA, FISPQ, produtos controlados
+   - ELETRÔNICOS: homologação ANATEL, dumping chinês, certificação INMETRO
+   - ALIMENTOS: registro MAPA, SIF/SIE, validade, temperatura
+   - MÁQUINAS/EQUIPAMENTOS: ex-tarifário, depreciação, NCM específico de partes
+   - TÊXTIL: medidas antidumping, origem preferencial, composição
+   - AUTOMOTIVO: LCVM, certificação INMETRO, recall
+   - METALURGIA/CUTELARIA: origem da matéria-prima, certificado de conformidade
+4. REFERÊNCIA NORMATIVA: Cite IN RFB, Portaria SECEX ou norma relevante quando aplicável
+
+FORMATO: 2-4 frases no tom de consultor experiente. NÃO seja genérico - fale especificamente sobre ESTA invoice.
+
+EXEMPLO DE TOM CORRETO:
+"Operações com NCM 8471 (computadores) originárias da China frequentemente são direcionadas ao canal amarelo pela RFB devido ao histórico de subfaturamento no setor. Para este valor de USD X, recomendo ter em mãos a homologação ANATEL e documentação de preço (cotações, catálogos) conforme IN RFB 1861/2018. Atenção especial à descrição detalhada - evite termos genéricos como 'eletrônicos' na DI."
 
 IMPOSTOS ESTIMADOS:
 Calcule os impostos usando as alíquotas do NCM selecionado:
