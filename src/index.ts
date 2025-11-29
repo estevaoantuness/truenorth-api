@@ -12,6 +12,7 @@ import validateRouter from './routes/validate';
 import operationsRouter from './routes/operations';
 import ncmRouter from './routes/ncm';
 import authRouter from './routes/auth';
+import exportRouter from './routes/export';
 
 dotenv.config();
 
@@ -43,6 +44,7 @@ app.use('/api/process', processRouter);
 app.use('/api/validate', validateRouter);
 app.use('/api/operations', operationsRouter);
 app.use('/api/ncm', ncmRouter);
+app.use('/api/export', exportRouter);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
