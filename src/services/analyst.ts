@@ -35,6 +35,7 @@ function detectSector(items: RawExtractionResult['items']): string {
     Medico: ['medical', 'médico', 'surgical', 'cirúrgico', 'diagnostic', 'diagnóstico', 'implant', 'implante', 'prosthesis', 'prótese', 'syringe', 'seringa', 'catheter', 'cateter', 'monitor', 'ultrasound'],
     Brinquedos: ['toy', 'brinquedo', 'game', 'jogo', 'puzzle', 'quebra-cabeça', 'doll', 'boneca', 'action figure', 'lego', 'block', 'bloco', 'plush', 'pelúcia'],
     Construcao: ['construction', 'construção', 'cement', 'cimento', 'steel', 'aço', 'pipe', 'tubo', 'wire', 'fio', 'cable', 'insulation', 'isolamento', 'tile', 'azulejo', 'ceramic', 'cerâmica'],
+    Utensilios: ['cutlery', 'talheres', 'fork', 'garfo', 'spoon', 'colher', 'knife', 'faca', 'utensil', 'utensílio', 'tableware', 'flatware', 'silverware', 'ladle', 'concha', 'spatula', 'espátula', 'kitchenware', 'cozinha'],
   };
 
   for (const [sector, keywords] of Object.entries(sectorKeywords)) {
@@ -123,6 +124,13 @@ TAREFA:
 2. Indique o nível de confiança (ALTA/MEDIA/BAIXA)
 3. Liste os anuentes necessários baseado no NCM
 4. Complete campos faltantes com valores padrão se possível
+
+IMPORTANTE:
+- Use APENAS NCMs que existem na lista acima
+- Se o produto NÃO se encaixar em nenhum NCM da lista, retorne ncm_sugerido: null
+- NÃO invente códigos NCM terminados em 9990, 0000 ou outros genéricos
+- Prefira retornar null do que um NCM incorreto
+- Se tiver dúvida entre dois NCMs, escolha o mais específico para o produto
 
 RETORNE JSON no formato:
 {

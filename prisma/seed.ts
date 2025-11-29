@@ -319,6 +319,19 @@ async function main() {
     { ncm: '76061190', descricao: 'Chapas de alumínio', capitulo: '76', aliquotaIi: 12, aliquotaIpi: 0, anuentes: [], setor: 'Construcao' },
     { ncm: '74091900', descricao: 'Chapas de cobre', capitulo: '74', aliquotaIi: 8, aliquotaIpi: 0, anuentes: [], setor: 'Construcao' },
 
+    // ============ UTENSÍLIOS E TALHERES (Cap. 82) - 11 NCMs ============
+    { ncm: '82111000', descricao: 'Sortidos de facas de lâmina cortante', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82119100', descricao: 'Facas de mesa, de lâmina fixa', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82119200', descricao: 'Outras facas de lâmina fixa', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82119300', descricao: 'Facas de lâmina não fixa', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82141000', descricao: 'Espátulas, abre-cartas, corta-papéis e suas lâminas', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82142000', descricao: 'Utensílios e sortidos de manicure ou pedicure', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82151000', descricao: 'Sortidos de colheres, garfos, conchas, escumadeiras, pegadores de açúcar', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82152000', descricao: 'Outros sortidos de artigos de cutelaria', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82159100', descricao: 'Colheres, garfos, conchas, escumadeiras, etc. (não em sortidos)', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82159200', descricao: 'Facas de mesa (exceto de lâmina fixa)', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+    { ncm: '82159900', descricao: 'Outros artigos de cutelaria de mesa', capitulo: '82', aliquotaIi: 18, aliquotaIpi: 5, anuentes: [], setor: 'Utensilios' },
+
     // ============ COMBUSTÍVEIS E ENERGIA (Cap. 27) - 10 NCMs ============
     { ncm: '27101259', descricao: 'Gasolina para veículos', capitulo: '27', aliquotaIi: 0, aliquotaIpi: 0, anuentes: ['ANP'], requerLpco: true, setor: 'Combustiveis' },
     { ncm: '27101921', descricao: 'Diesel', capitulo: '27', aliquotaIi: 0, aliquotaIpi: 0, anuentes: ['ANP'], requerLpco: true, setor: 'Combustiveis' },
