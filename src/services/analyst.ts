@@ -99,7 +99,7 @@ async function loadDatabaseContext(sector?: string): Promise<DatabaseContext> {
 function buildAnalystPrompt(rawData: RawExtractionResult, dbContext: DatabaseContext, sector: string): string {
   const ncmList = dbContext.ncms
     .slice(0, 50) // Top 50 most relevant
-    .map(n => `${n.codigo}: ${n.descricao} (${n.setor}) - Anuentes: ${n.anuentes.join(', ') || 'Nenhum'}`)
+    .map(n => `${n.codigo}: ${n.descricao} (${n.setor}) - II:${n.aliquotaIi}% IPI:${n.aliquotaIpi}% - Anuentes: ${n.anuentes.join(', ') || 'Nenhum'}`)
     .join('\n');
 
   const anuentesList = dbContext.anuentes
@@ -162,7 +162,16 @@ RETORNE JSON no formato:
   "campos_faltando": ["campos não encontrados"],
   "setor_detectado": "${sector}",
   "anuentes_operacao": ["lista única de anuentes para toda operação"],
-  "feedback_especialista": "1-3 frases de dica personalizada"
+  "feedback_especialista": "1-3 frases de dica personalizada",
+  "impostos_estimados": {
+    "ii": number (valor_total × aliquota_ii do NCM / 100),
+    "ipi": number (valor_total × aliquota_ipi do NCM / 100),
+    "pis_cofins": number (valor_total × 0.1165),
+    "total_impostos": number (soma de ii + ipi + pis_cofins),
+    "base_calculo": number (valor_total usado no cálculo)
+  },
+  "descricao_di": "Texto técnico detalhado para Declaração de Importação",
+  "alerta_subfaturamento": "string com alerta OU null se ok"
 }
 
 FEEDBACK ESPECIALISTA:
@@ -171,6 +180,29 @@ Ao final, gere um "feedback_especialista" com 1-3 frases curtas que:
 - Destaque algo importante DESTA operação específica (setor, anuentes, NCM, valor, peso)
 - Dê uma dica prática baseada nos dados extraídos
 - NÃO seja genérico - fale especificamente sobre ESTA invoice
+
+IMPOSTOS ESTIMADOS:
+Calcule os impostos usando as alíquotas do NCM selecionado:
+- II (Imposto de Importação): valor_total × aliquota_ii%
+- IPI (Imposto sobre Produtos Industrializados): valor_total × aliquota_ipi%
+- PIS/COFINS: valor_total × 11.65% (fixo)
+- total_impostos: soma dos três
+- base_calculo: valor total da invoice usado
+
+DESCRIÇÃO DI:
+Gere uma "descricao_di" técnica e detalhada para o Portal Único contendo:
+- Nome comercial e técnico do produto
+- Material/composição principal
+- Aplicação/uso
+- Características relevantes (dimensões, capacidade, etc se disponível)
+- Marca/modelo se informado
+Formato: texto corrido, sem quebras de linha, máximo 500 caracteres
+
+ALERTA SUBFATURAMENTO:
+Analise a relação valor/peso da mercadoria:
+- Se valor/kg for muito baixo para o tipo de produto (ex: eletrônicos < $5/kg, cosméticos < $10/kg), gere alerta
+- Se parecer normal, retorne null
+- Considere o setor detectado na análise
 
 Retorne APENAS o JSON, sem texto adicional.`;
 }
@@ -275,6 +307,9 @@ function parseAnalystResponse(text: string, fallbackData: RawExtractionResult): 
       setor_detectado: parsed.setor_detectado,
       anuentes_operacao: parsed.anuentes_operacao || [],
       feedback_especialista: parsed.feedback_especialista || null,
+      impostos_estimados: parsed.impostos_estimados || null,
+      descricao_di: parsed.descricao_di || null,
+      alerta_subfaturamento: parsed.alerta_subfaturamento || null,
     };
   } catch (error) {
     console.error('[Analyst] Failed to parse response:', error);

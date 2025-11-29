@@ -72,6 +72,17 @@ export interface ClassifiedExtractionResult {
   setor_detectado?: string;
   anuentes_operacao?: string[];
   feedback_especialista?: string;
+
+  // Novas features
+  impostos_estimados?: {
+    ii: number;
+    ipi: number;
+    pis_cofins: number;
+    total_impostos: number;
+    base_calculo: number;
+  };
+  descricao_di?: string;
+  alerta_subfaturamento?: string | null;
 }
 
 /**
