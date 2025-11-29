@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { pdfToPng } from 'pdf-to-png-converter';
+import { detectLanguage, translateForComex } from './translatorService';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || '' });
@@ -169,6 +170,77 @@ function parseJsonResponse(text: string): any {
 }
 
 /**
+ * Translate item descriptions from EN/ZH/ES to PT-BR for NCM search
+ * This is the "IF node" that detects language and translates only when needed
+ */
+async function translateItems(extractedData: any): Promise<any> {
+  if (!extractedData.items || extractedData.items.length === 0) {
+    return extractedData;
+  }
+
+  console.log('[Translation] Processing items for language detection...');
+
+  const translatedItems = await Promise.all(
+    extractedData.items.map(async (item: any) => {
+      const description = item.description || '';
+
+      if (!description || description.length < 3) {
+        return item;
+      }
+
+      // Step 1: Detect language
+      const language = detectLanguage(description);
+
+      // Step 2: IF node - only translate if NOT Portuguese
+      if (language !== 'pt') {
+        console.log(`[Translation] Item in ${language.toUpperCase()}: "${description.substring(0, 50)}..."`);
+
+        try {
+          const translation = await translateForComex(description, language);
+
+          return {
+            ...item,
+            description_original: description, // Keep original for reference
+            description: translation.translated, // Replace with PT-BR for NCM search
+            detected_language: language,
+            translation_confidence: translation.confidence,
+            translated: true,
+          };
+        } catch (error: any) {
+          console.error('[Translation] Failed to translate item:', error.message);
+          return {
+            ...item,
+            detected_language: language,
+            translation_confidence: 0,
+            translated: false,
+          };
+        }
+      }
+
+      // Item is already in Portuguese - skip translation
+      return {
+        ...item,
+        detected_language: 'pt',
+        translation_confidence: 1.0,
+        translated: false,
+      };
+    })
+  );
+
+  const translatedCount = translatedItems.filter(i => i.translated).length;
+  if (translatedCount > 0) {
+    console.log(`[Translation] Translated ${translatedCount}/${translatedItems.length} items to PT-BR`);
+  } else {
+    console.log('[Translation] All items already in PT-BR, no translation needed');
+  }
+
+  return {
+    ...extractedData,
+    items: translatedItems,
+  };
+}
+
+/**
  * Extract data from an image buffer directly using Vision API
  */
 async function extractFromImageBuffer(imageBuffer: Buffer, mimeType: string): Promise<any> {
@@ -223,66 +295,76 @@ export async function extractDataFromDocument(
   fileBuffer?: Buffer,
   mimeType?: string
 ): Promise<any> {
+  let extractedData: any;
+
   // Handle IMAGE type directly
   if (documentType === 'IMAGE' && fileBuffer) {
     try {
       console.log('Processing image file with Vision API...');
-      const result = await extractFromImageBuffer(fileBuffer, mimeType || 'image/jpeg');
+      extractedData = await extractFromImageBuffer(fileBuffer, mimeType || 'image/jpeg');
       console.log('Image extraction successful');
-      return result;
     } catch (error: any) {
       console.error('Image extraction failed:', error.message);
       throw new Error('Falha ao processar imagem: ' + error.message);
     }
-  }
+  } else {
+    // Check if we need Vision (empty or very short text from PDF)
+    const needsVision = documentType === 'PDF' &&
+      fileBuffer &&
+      (!documentText || documentText.length < 100 || documentText.includes('[PDF sem texto extraível'));
 
-  // Check if we need Vision (empty or very short text from PDF)
-  const needsVision = documentType === 'PDF' &&
-    fileBuffer &&
-    (!documentText || documentText.length < 100 || documentText.includes('[PDF sem texto extraível'));
+    // Try Vision first if needed (for image-based PDFs)
+    if (needsVision && process.env.OPENAI_API_KEY && fileBuffer) {
+      try {
+        console.log('PDF appears to be image-based, using Vision API...');
+        extractedData = await extractWithVision(fileBuffer);
+        console.log('Vision extraction successful');
+      } catch (error: any) {
+        console.error('Vision extraction failed:', error.message);
+        // Fall through to text-based extraction
+      }
+    }
 
-  // Try Vision first if needed (for image-based PDFs)
-  if (needsVision && process.env.OPENAI_API_KEY && fileBuffer) {
-    try {
-      console.log('PDF appears to be image-based, using Vision API...');
-      const result = await extractWithVision(fileBuffer);
-      console.log('Vision extraction successful');
-      return result;
-    } catch (error: any) {
-      console.error('Vision extraction failed:', error.message);
-      // Fall through to text-based extraction
+    // Use OpenAI text extraction as primary
+    if (!extractedData && process.env.OPENAI_API_KEY && documentText && documentText.length > 50) {
+      try {
+        console.log('Attempting extraction with OpenAI (text)...');
+        extractedData = await extractWithOpenAI(documentText);
+        console.log('OpenAI text extraction successful');
+      } catch (error: any) {
+        console.error('OpenAI extraction failed:', error.message);
+        // Fall through to Gemini
+      }
+    }
+
+    // Fallback to Gemini
+    if (!extractedData && process.env.GEMINI_API_KEY && documentText && documentText.length > 50) {
+      try {
+        console.log('Attempting extraction with Gemini (fallback)...');
+        extractedData = await extractWithGemini(documentText);
+        console.log('Gemini extraction successful');
+      } catch (error: any) {
+        console.error('Gemini extraction failed:', error.message);
+        // Fall through to demo data
+      }
+    }
+
+    // Last resort: demo data
+    if (!extractedData) {
+      console.warn('All AI services failed, returning demo extraction');
+      extractedData = createDemoExtraction(documentText);
     }
   }
 
-  // Use OpenAI text extraction as primary
-  if (process.env.OPENAI_API_KEY && documentText && documentText.length > 50) {
-    try {
-      console.log('Attempting extraction with OpenAI (text)...');
-      const result = await extractWithOpenAI(documentText);
-      console.log('OpenAI text extraction successful');
-      return result;
-    } catch (error: any) {
-      console.error('OpenAI extraction failed:', error.message);
-      // Fall through to Gemini
-    }
+  // TRANSLATION STEP: Detect language and translate items to PT-BR if needed
+  // This is the critical "IF node" that solves the EN→PT problem
+  try {
+    extractedData = await translateItems(extractedData);
+  } catch (error: any) {
+    console.error('[Translation] Translation step failed, continuing with original descriptions:', error.message);
   }
 
-  // Fallback to Gemini
-  if (process.env.GEMINI_API_KEY && documentText && documentText.length > 50) {
-    try {
-      console.log('Attempting extraction with Gemini (fallback)...');
-      const result = await extractWithGemini(documentText);
-      console.log('Gemini extraction successful');
-      return result;
-    } catch (error: any) {
-      console.error('Gemini extraction failed:', error.message);
-      // Fall through to demo data
-    }
-  }
-
-  // Last resort: demo data
-  console.warn('All AI services failed, returning demo extraction');
-  return createDemoExtraction(documentText);
+  return extractedData;
 }
 
 function createDemoExtraction(documentText: string): any {

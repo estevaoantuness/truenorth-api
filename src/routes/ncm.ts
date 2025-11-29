@@ -1,5 +1,6 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
+import { getNcmInfo, searchNcmByDescription, validateNcm, getNcmStats } from '../services/ncmService';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -39,14 +40,42 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/ncm/:ncm - Get specific NCM details
+// GET /api/ncm/search - Search NCMs by description
+router.get('/search', async (req, res) => {
+  try {
+    const { q, setor, limit = 20 } = req.query;
+
+    if (!q || typeof q !== 'string') {
+      return res.status(400).json({ error: 'Parâmetro de busca "q" é obrigatório' });
+    }
+
+    const results = await searchNcmByDescription(q, setor as string, Number(limit));
+
+    res.json(results);
+  } catch (error: any) {
+    console.error('Search NCM error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/ncm/validate/:ncm - Validate NCM
+router.get('/validate/:ncm', async (req, res) => {
+  try {
+    const result = await validateNcm(req.params.ncm);
+    res.json(result);
+  } catch (error: any) {
+    console.error('Validate NCM error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/ncm/:ncm - Get specific NCM details (with API fallback)
 router.get('/:ncm', async (req, res) => {
   try {
-    const ncm = await prisma.ncmDatabase.findUnique({
-      where: { ncm: req.params.ncm },
-    });
+    // Use ncmService with API fallback
+    const ncmInfo = await getNcmInfo(req.params.ncm);
 
-    if (!ncm) {
+    if (!ncmInfo) {
       return res.status(404).json({
         error: 'NCM não encontrado',
         ncm: req.params.ncm,
@@ -57,12 +86,22 @@ router.get('/:ncm', async (req, res) => {
     // Get anuentes details
     const anuentes = await prisma.anuente.findMany({
       where: {
-        sigla: { in: ncm.anuentes },
+        sigla: { in: ncmInfo.anuentes },
       },
     });
 
     res.json({
-      ...ncm,
+      ncm: ncmInfo.ncm,
+      descricao: ncmInfo.descricao,
+      capitulo: ncmInfo.capitulo,
+      aliquotaIi: ncmInfo.aliquotaIi,
+      aliquotaIpi: ncmInfo.aliquotaIpi,
+      aliquotaPis: ncmInfo.aliquotaPis,
+      aliquotaCofins: ncmInfo.aliquotaCofins,
+      anuentes: ncmInfo.anuentes,
+      requerLpco: ncmInfo.requerLpco,
+      setor: ncmInfo.setor,
+      fonte: ncmInfo.fonte,
       anuentesDetalhes: anuentes,
     });
   } catch (error: any) {
@@ -102,6 +141,17 @@ router.get('/stats/setores', async (req, res) => {
     );
   } catch (error: any) {
     console.error('NCM stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/ncm/stats/summary - Get full NCM database statistics
+router.get('/stats/summary', async (req, res) => {
+  try {
+    const stats = await getNcmStats();
+    res.json(stats);
+  } catch (error: any) {
+    console.error('NCM stats summary error:', error);
     res.status(500).json({ error: error.message });
   }
 });

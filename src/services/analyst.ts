@@ -7,6 +7,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PrismaClient } from '@prisma/client';
 import { RawExtractionResult, ClassifiedExtractionResult, DatabaseContext } from './scrapers/types';
+import { searchNcmByDescription, getNcmsBySector, validateNcm } from './ncmService';
 
 const prisma = new PrismaClient();
 
@@ -49,23 +50,86 @@ function detectSector(items: RawExtractionResult['items']): string {
 
 /**
  * Load database context (NCMs and Anuentes)
+ * Now uses ncmService for intelligent search with 15,000+ NCMs
  */
-async function loadDatabaseContext(sector?: string): Promise<DatabaseContext> {
-  // Load NCMs - filter by sector if detected, otherwise get top ones
-  const ncmWhere = sector && sector !== 'Geral' ? { setor: sector } : {};
+async function loadDatabaseContext(sector?: string, itemDescriptions?: string[]): Promise<DatabaseContext> {
+  // Strategy: Combine sector-based + description-based NCM search
+  let ncms: any[] = [];
 
-  const ncms = await prisma.ncmDatabase.findMany({
-    where: ncmWhere,
-    take: 100, // Limit to avoid token overflow
-    select: {
-      ncm: true,
-      descricao: true,
-      aliquotaIi: true,
-      aliquotaIpi: true,
-      setor: true,
-      anuentes: true,
-    },
-  });
+  // 1. Get NCMs by sector (base coverage)
+  if (sector && sector !== 'Geral') {
+    const sectorNcms = await getNcmsBySector(sector, 50);
+    ncms = sectorNcms.map(n => ({
+      codigo: n.ncm,
+      descricao: n.descricao,
+      setor: n.setor,
+    }));
+    console.log(`[Analyst] Loaded ${ncms.length} NCMs for sector: ${sector}`);
+  }
+
+  // 2. Search by item descriptions for better precision
+  if (itemDescriptions && itemDescriptions.length > 0) {
+    for (const desc of itemDescriptions.slice(0, 5)) { // Top 5 items
+      const searchResults = await searchNcmByDescription(desc, sector, 20);
+      for (const r of searchResults) {
+        // Avoid duplicates
+        if (!ncms.find(n => n.codigo === r.ncm)) {
+          ncms.push({
+            codigo: r.ncm,
+            descricao: r.descricao,
+            setor: r.setor,
+          });
+        }
+      }
+    }
+    console.log(`[Analyst] Total NCMs after description search: ${ncms.length}`);
+  }
+
+  // 3. Fallback: get general NCMs if nothing found
+  if (ncms.length < 20) {
+    const fallbackNcms = await prisma.ncmDatabase.findMany({
+      take: 100 - ncms.length,
+      select: {
+        ncm: true,
+        descricao: true,
+        aliquotaIi: true,
+        aliquotaIpi: true,
+        setor: true,
+        anuentes: true,
+      },
+    });
+    for (const n of fallbackNcms) {
+      if (!ncms.find(x => x.codigo === n.ncm)) {
+        ncms.push({
+          codigo: n.ncm,
+          descricao: n.descricao,
+          aliquotaIi: n.aliquotaIi?.toString() || '0',
+          aliquotaIpi: n.aliquotaIpi?.toString() || '0',
+          setor: n.setor || 'Geral',
+          anuentes: n.anuentes,
+        });
+      }
+    }
+  }
+
+  // Enrich NCMs with aliquotas if missing
+  const enrichedNcms = await Promise.all(
+    ncms.slice(0, 100).map(async (n) => {
+      if (!n.aliquotaIi) {
+        const full = await prisma.ncmDatabase.findUnique({
+          where: { ncm: n.codigo },
+          select: { aliquotaIi: true, aliquotaIpi: true, anuentes: true },
+        });
+        return {
+          ...n,
+          aliquotaIi: full?.aliquotaIi?.toString() || '0',
+          aliquotaIpi: full?.aliquotaIpi?.toString() || '0',
+          anuentes: full?.anuentes || [],
+        };
+      }
+      return n;
+    })
+  );
 
   // Load all anuentes
   const anuentes = await prisma.anuente.findMany({
@@ -76,14 +140,16 @@ async function loadDatabaseContext(sector?: string): Promise<DatabaseContext> {
     },
   });
 
+  console.log(`[Analyst] Final context: ${enrichedNcms.length} NCMs, ${anuentes.length} anuentes`);
+
   return {
-    ncms: ncms.map(n => ({
-      codigo: n.ncm,
+    ncms: enrichedNcms.map(n => ({
+      codigo: n.codigo,
       descricao: n.descricao,
-      aliquotaIi: n.aliquotaIi?.toString() || '0',
-      aliquotaIpi: n.aliquotaIpi?.toString() || '0',
+      aliquotaIi: n.aliquotaIi || '0',
+      aliquotaIpi: n.aliquotaIpi || '0',
       setor: n.setor || 'Geral',
-      anuentes: n.anuentes,
+      anuentes: n.anuentes || [],
     })),
     anuentes: anuentes.map(a => ({
       sigla: a.sigla,
@@ -231,9 +297,12 @@ export async function analyzeExtraction(rawData: RawExtractionResult): Promise<C
   const sector = detectSector(rawData.items);
   console.log(`[Analyst] Detected sector: ${sector}`);
 
-  // Load database context
-  const dbContext = await loadDatabaseContext(sector);
-  console.log(`[Analyst] Loaded ${dbContext.ncms.length} NCMs and ${dbContext.anuentes.length} anuentes`);
+  // Extract item descriptions for smart NCM search
+  const itemDescriptions = rawData.items.map(i => i.description).filter(d => d && d.length > 3);
+  console.log(`[Analyst] Item descriptions: ${itemDescriptions.slice(0, 3).join(', ')}...`);
+
+  // Load database context with intelligent search
+  const dbContext = await loadDatabaseContext(sector, itemDescriptions);
 
   // Build prompt and call Gemini
   const prompt = buildAnalystPrompt(rawData, dbContext, sector);

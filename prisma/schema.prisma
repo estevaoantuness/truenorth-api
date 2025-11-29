@@ -28,8 +28,10 @@ model NcmDatabase {
   exTarifario   Boolean  @default(false) @map("ex_tarifario")
   destaque      String?
   setor         String?  @db.VarChar(50)
+  fonte         String?  @db.VarChar(20) // Siscomex, TIPI, estimado
 
   createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("ncm_database")
 }
@@ -96,6 +98,24 @@ model User {
   operacoes Operacao[]
 
   @@map("users")
+}
+
+// Cache de Traduções COMEX
+model TranslationCache {
+  id              Int      @id @default(autoincrement())
+  originalTerm    String   @unique @map("original_term") @db.VarChar(500)
+  translatedTerm  String   @map("translated_term") @db.VarChar(500)
+  sourceLanguage  String   @map("source_language") @db.VarChar(5)
+  sector          String?  @db.VarChar(50)
+  usageCount      Int      @default(1) @map("usage_count")
+  confirmedByUser Boolean  @default(false) @map("confirmed_by_user")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([originalTerm])
+  @@index([sector])
+  @@index([sourceLanguage])
+  @@map("translation_cache")
 }
 
 // Histórico de Operações
