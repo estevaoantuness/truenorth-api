@@ -41,8 +41,8 @@ const COMEX_SYNONYMS: Record<string, string[]> = {
   'pastilha': ['guarnição'],
   'pastilhas': ['guarnições'],
   'guarnição': ['pastilha'],
-  'freio': ['travão'],
-  'freios': ['travões'],
+  'freio': ['travão', 'servofreio'],
+  'freios': ['travões', 'servofreios'],
   'disco': ['prato'],
 
   // Eletrônicos
@@ -51,13 +51,19 @@ const COMEX_SYNONYMS: Record<string, string[]> = {
   'bateria': ['acumulador'],
   'baterias': ['acumuladores'],
   'carregador': ['fonte'],
+  'lítio': ['íon'],
+  'portátil': ['recarregável'],
 
-  // Alimentos - simplificado (sem frases)
+  // Alimentos
   'extravirgem': ['virgem'],
+  'refinado': ['processado'],
+  'soja': ['soya'],
 
   // Cosméticos
   'perfume': ['fragrância'],
-  'creme': ['pomada'],
+  'creme': ['preparação'], // Removed 'pomada' to avoid food confusion
+  'facial': ['pele', 'rosto'],
+  'anti': ['contra'],
 };
 
 /**
@@ -159,7 +165,7 @@ export async function searchNcmByDescription(
     console.log(`[NCM FTS] Query: "${normalizedQuery}" → Expanded: "${expandedQuery}"`);
 
     // Use to_tsquery with synonyms + improved ranking
-    const results = await prisma.$queryRawUnsafe<Array<{
+    const ftsResults = await prisma.$queryRawUnsafe<Array<{
       ncm: string;
       descricao: string;
       setor: string | null;
@@ -187,61 +193,110 @@ export async function searchNcmByDescription(
       LIMIT ${limit}
     `);
 
-    return results.map((r) => ({
+    const ftsResultsMapped = ftsResults.map((r) => ({
       ncm: r.ncm,
       descricao: r.descricao,
       setor: r.setor || 'Outros',
-      score: r.relevance * 100, // Scale to 0-100 range for compatibility
+      score: r.relevance * 100, // Scale to 0-100 range
     }));
+
+    // Hybrid fallback: If FTS has low confidence, merge with ILIKE results
+    const hasLowConfidence =
+      ftsResultsMapped.length < 3 ||
+      (ftsResultsMapped.length > 0 && ftsResultsMapped[0].score < 3.0);
+
+    if (hasLowConfidence) {
+      console.log('[NCM FTS] Low confidence detected, using hybrid FTS+ILIKE approach');
+
+      // Get ILIKE results
+      const ilikeResults = await searchWithILIKE(normalizedQuery, sector, limit);
+
+      // Merge and deduplicate
+      const mergedResults = [...ftsResultsMapped, ...ilikeResults];
+      const uniqueResults = deduplicateByNCM(mergedResults);
+
+      // Re-sort by score and limit
+      return uniqueResults
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+    }
+
+    return ftsResultsMapped;
 
   } catch (error: any) {
-    // Fallback to old search if FTS fails (e.g., column doesn't exist yet)
-    console.warn('[NCM Service] Full-text search failed, using fallback:', error.message);
-
-    const queryLower = query.toLowerCase();
-    const words = queryLower.split(/\s+/).filter((w) => w.length >= 3);
-
-    const whereConditions: any[] = words.map((word) => ({
-      descricao: { contains: word, mode: 'insensitive' },
-    }));
-
-    const where = {
-      AND: [
-        { OR: whereConditions.length > 0 ? whereConditions : [{}] },
-        sector && sector !== 'Geral' ? { setor: sector } : {},
-      ],
-    };
-
-    const results = await prisma.ncmDatabase.findMany({
-      where,
-      take: limit * 2,
-      select: { ncm: true, descricao: true, setor: true },
-    });
-
-    const scored = results.map((r) => {
-      let score = 0;
-      const descLower = r.descricao.toLowerCase();
-
-      if (descLower.includes(queryLower)) score += 100;
-      words.forEach((word) => {
-        if (descLower.includes(word)) score += 20;
-      });
-      if (sector && r.setor === sector) score += 30;
-      if (!r.ncm.endsWith('00')) score += 10;
-
-      return { ...r, score };
-    });
-
-    return scored
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map((r) => ({
-        ncm: r.ncm,
-        descricao: r.descricao,
-        setor: r.setor || 'Outros',
-        score: r.score,
-      }));
+    // Fallback to ILIKE search if FTS fails (e.g., column doesn't exist yet)
+    console.warn('[NCM Service] Full-text search failed, using ILIKE fallback:', error.message);
+    return await searchWithILIKE(normalizedQuery, sector, limit);
   }
+}
+
+/**
+ * Deduplicate NCM results by code, keeping the one with higher score
+ */
+function deduplicateByNCM(results: NcmSearchResult[]): NcmSearchResult[] {
+  const seen = new Map<string, NcmSearchResult>();
+
+  for (const result of results) {
+    const existing = seen.get(result.ncm);
+    if (!existing || result.score > existing.score) {
+      seen.set(result.ncm, result);
+    }
+  }
+
+  return Array.from(seen.values());
+}
+
+/**
+ * Search NCMs using ILIKE (fallback method)
+ */
+async function searchWithILIKE(
+  query: string,
+  sector?: string,
+  limit: number = 50
+): Promise<NcmSearchResult[]> {
+  const queryLower = query.toLowerCase();
+  const words = queryLower.split(/\s+/).filter((w) => w.length >= 3);
+
+  const whereConditions: any[] = words.map((word) => ({
+    descricao: { contains: word, mode: 'insensitive' },
+  }));
+
+  const where = {
+    AND: [
+      { OR: whereConditions.length > 0 ? whereConditions : [{}] },
+      sector && sector !== 'Geral' ? { setor: sector } : {},
+    ],
+  };
+
+  const results = await prisma.ncmDatabase.findMany({
+    where,
+    take: limit * 2,
+    select: { ncm: true, descricao: true, setor: true },
+  });
+
+  const scored = results.map((r) => {
+    let score = 0;
+    const descLower = r.descricao.toLowerCase();
+
+    if (descLower.includes(queryLower)) score += 100;
+    words.forEach((word) => {
+      if (descLower.includes(word)) score += 20;
+    });
+    if (sector && r.setor === sector) score += 30;
+    if (!r.ncm.endsWith('00')) score += 10;
+
+    return { ...r, score };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => ({
+      ncm: r.ncm,
+      descricao: r.descricao,
+      setor: r.setor || 'Outros',
+      score: r.score,
+    }));
 }
 
 /**

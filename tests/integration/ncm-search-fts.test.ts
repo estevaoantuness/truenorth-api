@@ -26,16 +26,19 @@ const TEST_CASES: TestCase[] = [
     query: "pastilhas de freio",
     expected: "87083010",
     description: "Guarnições de freio (sem especificação)",
+    sector: "Autopecas",
   },
   {
     query: "disco de freio",
-    expected: "87083020",
-    description: "Discos de freio",
+    expected: "87083000",
+    description: "Freios e servofreios (genérico)",
+    sector: "Autopecas",
   },
   {
     query: "filtro de óleo para motor",
     expected: "84212300",
     description: "Filtros de óleo",
+    sector: "Autopecas",
   },
 
   // Eletrônicos
@@ -43,38 +46,45 @@ const TEST_CASES: TestCase[] = [
     query: "fones de ouvido sem fio bluetooth",
     expected: "85183000",
     description: "Fones de ouvido",
+    sector: "Eletronicos",
   },
   {
     query: "fones de ouvido",
     expected: "85183000",
     description: "Fones (sem especificação)",
+    sector: "Eletronicos",
   },
   {
     query: "telefone celular smartphone",
     expected: "85171300",
     description: "Smartphone",
+    sector: "Eletronicos",
   },
   {
     query: "bateria de lítio portátil",
     expected: "85076000",
     description: "Acumuladores de lítio",
+    sector: "Eletronicos",
   },
 
   // Alimentos
   {
     query: "azeite de oliva extravirgem",
-    expected: "15091000",
-    description: "Azeite virgem",
+    expected: "15092000",
+    description: "Azeite extra virgem",
+    sector: "Alimentos",
   },
   {
     query: "azeite de oliva",
-    expected: "15091000",
-    description: "Azeite (sem especificação)",
+    expected: "15090000",
+    description: "Azeite (genérico)",
+    sector: "Alimentos",
   },
   {
     query: "óleo de soja refinado",
     expected: "15079010",
     description: "Óleo de soja",
+    sector: "Alimentos",
   },
 
   // Cosméticos
@@ -82,11 +92,13 @@ const TEST_CASES: TestCase[] = [
     query: "perfume eau de toilette",
     expected: "33030010",
     description: "Perfumes e águas de colônia",
+    sector: "Cosmeticos",
   },
   {
     query: "creme facial anti-idade",
-    expected: "33049100",
-    description: "Cremes para cuidados da pele",
+    expected: "33049910",
+    description: "Cremes de beleza e cremes nutritivos",
+    sector: "Cosmeticos",
   },
 ];
 

@@ -21,8 +21,9 @@ function getGeminiClient(): GoogleGenerativeAI {
 
 /**
  * Detect sector from item descriptions
+ * Uses FTS + keyword fallback for accurate sector detection
  */
-function detectSector(items: RawExtractionResult['items']): string {
+async function detectSector(items: RawExtractionResult['items']): Promise<string> {
   const descriptions = items.map(i => i.description.toLowerCase()).join(' ');
 
   const sectorKeywords: Record<string, string[]> = {
@@ -39,12 +40,39 @@ function detectSector(items: RawExtractionResult['items']): string {
     Utensilios: ['cutlery', 'talheres', 'fork', 'garfo', 'spoon', 'colher', 'knife', 'faca', 'utensil', 'utensílio', 'tableware', 'flatware', 'silverware', 'ladle', 'concha', 'spatula', 'espátula', 'kitchenware', 'cozinha'],
   };
 
+  // 1. Try keyword matching first (fast)
   for (const [sector, keywords] of Object.entries(sectorKeywords)) {
     if (keywords.some(kw => descriptions.includes(kw))) {
+      console.log(`[Analyst] Sector detected by keyword: ${sector}`);
       return sector;
     }
   }
 
+  // 2. Use FTS to detect sector from top NCMs
+  try {
+    const topNcms = await searchNcmByDescription(descriptions.slice(0, 200), undefined, 20);
+
+    if (topNcms.length > 0) {
+      // Count sectors weighted by relevance score
+      const sectorScores: Record<string, number> = {};
+      topNcms.forEach(ncm => {
+        const sector = ncm.setor || 'Geral';
+        sectorScores[sector] = (sectorScores[sector] || 0) + ncm.score;
+      });
+
+      // Return sector with highest score
+      const sortedSectors = Object.entries(sectorScores).sort((a, b) => b[1] - a[1]);
+      if (sortedSectors.length > 0 && sortedSectors[0][1] > 0) {
+        const detectedSector = sortedSectors[0][0];
+        console.log(`[Analyst] Sector detected by FTS: ${detectedSector} (score: ${sortedSectors[0][1].toFixed(2)})`);
+        return detectedSector;
+      }
+    }
+  } catch (error) {
+    console.warn('[Analyst] FTS sector detection failed, using fallback:', error);
+  }
+
+  console.log('[Analyst] No sector detected, using Geral');
   return 'Geral';
 }
 
@@ -294,7 +322,7 @@ export async function analyzeExtraction(rawData: RawExtractionResult): Promise<C
   console.log('[Analyst] Starting classification...');
 
   // Detect sector from items
-  const sector = detectSector(rawData.items);
+  const sector = await detectSector(rawData.items);
   console.log(`[Analyst] Detected sector: ${sector}`);
 
   // Extract item descriptions for smart NCM search
