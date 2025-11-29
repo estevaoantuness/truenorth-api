@@ -139,7 +139,25 @@ router.post('/', requireAuth, upload.single('file'), async (req: AuthRequest, re
 
   } catch (error: any) {
     console.error('Upload/Process error:', error);
-    res.status(500).json({ error: error.message || 'Erro ao processar arquivo' });
+
+    // Provide friendly error messages based on error type
+    let friendlyMessage = 'Erro ao processar arquivo';
+
+    if (error.message?.includes('pdf') || error.message?.includes('PDF')) {
+      friendlyMessage = 'Não foi possível extrair dados do PDF. Verifique se o arquivo não está protegido por senha ou corrompido.';
+    } else if (error.message?.includes('XML') || error.message?.includes('xml')) {
+      friendlyMessage = 'Erro ao processar o XML. Verifique se o arquivo está no formato correto (Invoice XML ou NF-e).';
+    } else if (error.message?.includes('image') || error.message?.includes('imagem')) {
+      friendlyMessage = 'Não foi possível processar a imagem. Verifique se está legível e em boa resolução.';
+    } else if (error.message?.includes('timeout') || error.message?.includes('Timeout')) {
+      friendlyMessage = 'O processamento demorou demais. Tente novamente ou use um arquivo menor.';
+    } else if (error.message?.includes('API') || error.message?.includes('Gemini')) {
+      friendlyMessage = 'Serviço de IA temporariamente indisponível. Tente novamente em alguns segundos.';
+    } else if (error.message) {
+      friendlyMessage = error.message;
+    }
+
+    res.status(500).json({ error: friendlyMessage });
   }
 });
 

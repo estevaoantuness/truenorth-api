@@ -83,16 +83,22 @@ export async function validateOperation(
         const ncmInfo = ncmMap.get(item.ncm_sugerido);
 
         if (!ncmInfo) {
-          // NCM not found in database
+          // NCM not found in database - provide helpful suggestions
+          const ncmPrefix = item.ncm_sugerido?.substring(0, 4) || '';
+          const similarNcms = ncmDatabase.filter(n => n.ncm.startsWith(ncmPrefix)).slice(0, 3);
+          const suggestions = similarNcms.length > 0
+            ? `Códigos similares encontrados: ${similarNcms.map(n => `${n.ncm} (${n.descricao?.substring(0, 30)}...)`).join(', ')}`
+            : 'Consulte a tabela TIPI para classificar o produto corretamente';
+
           validacoes.push({
             campo: `Item ${itemNum} - NCM`,
             valor_encontrado: item.ncm_sugerido,
             valor_esperado: null,
             status: 'ERRO',
             codigo_erro: 'NCM_INVALIDO',
-            explicacao: `NCM ${item.ncm_sugerido} não encontrado na base de dados TIPI`,
+            explicacao: `NCM ${item.ncm_sugerido} não encontrado na base TIPI. ${suggestions}`,
             fonte: `Invoice - Item ${itemNum}: "${item.description}"`,
-            sugestao_correcao: 'Verifique o código NCM na tabela TIPI ou consulte um especialista em classificação fiscal',
+            sugestao_correcao: suggestions,
           });
 
           erros.push({
@@ -100,7 +106,7 @@ export async function validateOperation(
             campo: `Item ${itemNum} - NCM`,
             valor_original: item.ncm_sugerido,
             valor_esperado: 'NCM válido de 8 dígitos',
-            explicacao: `O código NCM ${item.ncm_sugerido} não existe na Tabela TIPI vigente`,
+            explicacao: `NCM ${item.ncm_sugerido} não existe na Tabela TIPI. ${suggestions}`,
             fonte: `Invoice linha do item ${itemNum}`,
             severidade: 'MEDIA',
           });
@@ -166,15 +172,20 @@ export async function validateOperation(
         }
       } else {
         // No NCM provided
+        const ncmDigitsProvided = item.ncm_sugerido?.length || 0;
+        const mensagem = ncmDigitsProvided > 0 && ncmDigitsProvided < 8
+          ? `NCM deve ter 8 dígitos. Você informou ${ncmDigitsProvided} dígitos: "${item.ncm_sugerido}"`
+          : `NCM não informado para "${item.description || 'item ' + itemNum}"`;
+
         validacoes.push({
           campo: `Item ${itemNum} - NCM`,
-          valor_encontrado: null,
+          valor_encontrado: item.ncm_sugerido || null,
           valor_esperado: 'NCM de 8 dígitos',
           status: 'ERRO',
           codigo_erro: 'NCM_INVALIDO',
-          explicacao: 'NCM não informado para o item',
+          explicacao: mensagem,
           fonte: `Invoice - Item ${itemNum}`,
-          sugestao_correcao: 'Consulte a tabela TIPI para classificar o produto corretamente',
+          sugestao_correcao: 'Consulte a tabela TIPI em https://portalunico.siscomex.gov.br para classificar o produto',
         });
       }
 
