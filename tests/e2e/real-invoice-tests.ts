@@ -7,7 +7,7 @@
  */
 
 import { translateForComex, detectLanguage } from '../../src/services/translatorService';
-import { searchNcmByDescription } from '../../src/services/ncmService';
+import { searchNcmByDescription, searchWithAutoRetry } from '../../src/services/ncmService';
 
 // ============================================
 // INVOICES REALISTAS (baseadas em casos comuns)
@@ -317,13 +317,13 @@ async function testInvoice(invoice: Invoice): Promise<TestResult[]> {
       }
     }
 
-    // 2. Busca NCM
+    // 2. Busca NCM (with auto-retry)
     try {
-      console.log(`\n   [2/3] Buscando NCM...`);
-      const searchResults = await searchNcmByDescription(
+      console.log(`\n   [2/3] Buscando NCM com auto-retry...`);
+      const searchResults = await searchWithAutoRetry(
         translatedDesc,
         item.expectedSector,
-        10
+        item.language
       );
 
       if (searchResults.length === 0) {

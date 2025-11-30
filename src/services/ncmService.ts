@@ -30,6 +30,20 @@ export interface NcmSearchResult {
   descricao: string;
   setor: string;
   score: number;
+  confidence: 'high' | 'medium' | 'low'; // Indica confiança do resultado
+}
+
+/**
+ * Calculate confidence level based on score
+ *
+ * - high: score >= 10.0 (excelente match, FTS com setor correto)
+ * - medium: score >= 5.0 (bom match, pode precisar validação)
+ * - low: score < 5.0 (baixa confiança, usuário deve revisar)
+ */
+function calculateConfidence(score: number): 'high' | 'medium' | 'low' {
+  if (score >= 10.0) return 'high';
+  if (score >= 5.0) return 'medium';
+  return 'low';
 }
 
 /**
@@ -193,12 +207,16 @@ export async function searchNcmByDescription(
       LIMIT ${limit}
     `);
 
-    const ftsResultsMapped = ftsResults.map((r) => ({
-      ncm: r.ncm,
-      descricao: r.descricao,
-      setor: r.setor || 'Outros',
-      score: r.relevance * 100, // Scale to 0-100 range
-    }));
+    const ftsResultsMapped = ftsResults.map((r) => {
+      const score = r.relevance * 100;
+      return {
+        ncm: r.ncm,
+        descricao: r.descricao,
+        setor: r.setor || 'Outros',
+        score,
+        confidence: calculateConfidence(score),
+      };
+    });
 
     // Hybrid fallback: If FTS has low confidence, merge with ILIKE results
     const hasLowConfidence =
@@ -296,7 +314,85 @@ async function searchWithILIKE(
       descricao: r.descricao,
       setor: r.setor || 'Outros',
       score: r.score,
+      confidence: calculateConfidence(r.score),
     }));
+}
+
+/**
+ * Search with Auto-Retry and Translation
+ *
+ * Estratégia de 3 níveis para lidar com zero results:
+ * 1. Tenta busca direta
+ * 2. Se 0 resultados E query não está em PT → detecta idioma, traduz, retry
+ * 3. Se ainda 0 resultados E tem setor → tenta sem filtro de setor
+ *
+ * Fix para problema: "Eau de Parfum" → 0 resultados ❌
+ */
+export async function searchWithAutoRetry(
+  query: string,
+  sector?: string,
+  language?: string
+): Promise<NcmSearchResult[]> {
+  // Tentativa 1: Busca direta
+  let results = await searchNcmByDescription(query, sector);
+
+  // Se encontrou resultados OU query já está em português, retornar
+  if (results.length > 0 || language === 'pt') {
+    return results;
+  }
+
+  console.log('[NCM AutoRetry] Zero results, detecting untranslated terms...');
+
+  // Tentativa 2: Detectar e traduzir termos não traduzidos
+  const { detectLanguage, translateForComex } = await import('./translatorService');
+  const detectedLang = detectLanguage(query);
+
+  if (detectedLang !== 'pt') {
+    console.log(`[NCM AutoRetry] Detected ${detectedLang}, re-translating...`);
+
+    try {
+      const translationResult = await translateForComex(query, detectedLang);
+      console.log(`[NCM AutoRetry] Re-translated: "${translationResult.translated}"`);
+
+      // Retry com query traduzida
+      results = await searchNcmByDescription(translationResult.translated, sector);
+
+      if (results.length > 0) {
+        console.log(`[NCM AutoRetry] SUCCESS! Found ${results.length} results after translation`);
+
+        // Adicionar metadata indicando que foi retranslated
+        results = results.map(r => ({
+          ...r,
+          // @ts-ignore - adicionar campo extra
+          wasRetranslated: true,
+          originalQuery: query
+        }));
+
+        return results;
+      }
+    } catch (error) {
+      console.error('[NCM AutoRetry] Translation failed:', error);
+    }
+  }
+
+  // Tentativa 3: Busca relaxada (sem setor)
+  if (results.length === 0 && sector) {
+    console.log('[NCM AutoRetry] Trying without sector filter...');
+    results = await searchNcmByDescription(query, undefined);
+
+    if (results.length > 0) {
+      console.log(`[NCM AutoRetry] Found ${results.length} results without sector`);
+
+      // Adicionar metadata indicando que foi busca relaxada
+      results = results.map(r => ({
+        ...r,
+        // @ts-ignore - adicionar campo extra
+        relaxedSearch: true
+      }));
+    }
+  }
+
+  return results;
 }
 
 /**
@@ -325,6 +421,7 @@ export async function getNcmsBySector(
     descricao: r.descricao,
     setor: r.setor || 'Outros',
     score: 100, // All equal when filtering by sector
+    confidence: 'high' as const, // Alta confiança quando filtrado por setor
   }));
 }
 
@@ -380,6 +477,7 @@ export async function validateNcm(ncm: string): Promise<{
       descricao: s.descricao,
       setor: s.setor || 'Outros',
       score: 50,
+      confidence: 'medium' as const, // Sugestões têm confiança média
     })),
   };
 }

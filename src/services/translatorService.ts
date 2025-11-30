@@ -18,7 +18,81 @@ export interface TranslationResult {
   sourceLanguage: string;
   confidence: number;
   fromCache: boolean;
+  technicalTermsPreserved?: string[]; // Termos técnicos que foram preservados
 }
+
+/**
+ * Technical Terms - DO NOT TRANSLATE
+ *
+ * Estes termos devem ser preservados pois são:
+ * - Termos técnicos universais (Luer Lock, USB-C, TWS)
+ * - Certificações/Denominações (DOP, IGP, ISO, CE)
+ * - Acrônimos industriais (CNC, SRAM, ABS)
+ * - Unidades de medida (mAh, kW, MHz)
+ *
+ * Fix para problema: "Luer Lock" → "fechadura" ❌
+ */
+const TECHNICAL_TERMS_DO_NOT_TRANSLATE = [
+  // Médico/Farmacêutico
+  'Luer Lock', 'Luer', 'IV', 'IM', 'SC', 'Syringe', 'Syringes',
+  'Sterile', 'Disposable', 'Pharmaceutical Grade', 'USP', 'BP', 'EP',
+
+  // Eletrônicos
+  'TWS', 'USB-C', 'USB', 'USB-A', 'USB-B', 'Mini USB', 'Micro USB',
+  'HDMI', 'Bluetooth', 'Wi-Fi', 'WiFi', 'NFC', 'GPS', 'LTE', '5G', '4G', '3G',
+  'LED', 'OLED', 'LCD', 'AMOLED', 'IPS', 'TFT', 'QLED',
+  'SSD', 'HDD', 'SATA', 'NVMe', 'PCIe',
+  'RAM', 'ROM', 'SRAM', 'DRAM', 'DDR3', 'DDR4', 'DDR5',
+  'CPU', 'GPU', 'APU', 'SoC',
+
+  // Unidades de Medida (preservar para evitar conversão incorreta)
+  'mAh', 'Ah', 'Wh', 'kW', 'kWh', 'W',
+  'MHz', 'GHz', 'Mbps', 'Gbps',
+  'MP', 'megapixel', 'megapixels',
+  'dpi', 'ppi',
+  'ml', 'cl', 'dl', 'L', 'mL',
+  'mg', 'g', 'kg', 'lb', 'oz',
+
+  // Certificações e Denominações de Origem
+  'DOP', 'IGP', 'PDO', 'PGI', 'AOC', 'DOC', 'DOCG',
+  'ISO', 'ISO 9001', 'ISO 14001',
+  'CE', 'FCC', 'FDA', 'INMETRO', 'ANATEL',
+  'RoHS', 'REACH',
+
+  // Industrial/Automotivo
+  'CNC', 'CAD', 'CAM', 'CAE', 'PLC', 'SCADA',
+  'ABS', 'EBD', 'ESP', 'TCS', 'ASR', 'EDL',
+  'OBD', 'OBD-II', 'EOBD',
+  'DIN', 'SAE', 'AISI',
+
+  // Químico/Científico
+  'pH', 'ppm', 'ppb',
+  'CAS', 'CAS Number',
+  'IUPAC',
+  'GMP', 'cGMP',
+
+  // Materiais
+  'ABS plastic', 'PVC', 'PET', 'HDPE', 'LDPE', 'PP', 'PS',
+  'TPU', 'TPE',
+
+  // Padrões/Especificações
+  'IP67', 'IP68', 'IPX4', 'IPX7',
+  'UL', 'ETL', 'CSA',
+  'ASTM', 'ANSI',
+
+  // Formatos de Arquivo (se aparecer em descrição técnica)
+  'PDF', 'JPG', 'JPEG', 'PNG', 'MP4', 'MP3',
+
+  // Marcas/Modelos comuns (quando fazem parte da especificação técnica)
+  'Intel Core i3', 'Intel Core i5', 'Intel Core i7', 'Intel Core i9',
+  'AMD Ryzen',
+  'NVIDIA', 'GeForce', 'RTX', 'GTX',
+
+  // Conectores/Interfaces
+  'RJ45', 'RJ11',
+  'XLR', 'TRS', 'TRRS',
+  'DisplayPort', 'VGA', 'DVI',
+];
 
 /**
  * COMEX Dictionary - Specialized terminology for Brazilian imports
@@ -279,6 +353,66 @@ const COMEX_DICTIONARY: Record<string, string[]> = {
 };
 
 /**
+ * Preserve technical terms before translation
+ *
+ * Substitui termos técnicos por placeholders, traduz o resto, depois restaura
+ *
+ * Example:
+ *   Input:  "Medical Syringes 10ml Luer Lock Sterile"
+ *   Step 1: "Medical Syringes 10ml __TECH_0__ __TECH_1__" (preserva Luer Lock, Sterile)
+ *   Step 2: "Médico Seringas 10ml __TECH_0__ __TECH_1__" (traduz o resto)
+ *   Step 3: "Médico Seringas 10ml Luer Lock Sterile" (restaura)
+ *
+ * Fix: "Luer Lock" → "fechadura" ❌ NUNCA MAIS!
+ */
+function preserveTechnicalTerms(text: string): {
+  cleaned: string;
+  placeholders: Map<string, string>;
+} {
+  const placeholders = new Map<string, string>();
+  let cleaned = text;
+
+  // Sort by length (longest first) to match "Intel Core i7" before "Intel"
+  const sortedTerms = [...TECHNICAL_TERMS_DO_NOT_TRANSLATE].sort(
+    (a, b) => b.length - a.length
+  );
+
+  sortedTerms.forEach((term, index) => {
+    // Case-insensitive matching com word boundaries
+    const regex = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+
+    if (regex.test(cleaned)) {
+      const placeholder = `__TECH${index}__`;
+      const matches = cleaned.match(regex);
+
+      if (matches) {
+        // Preserva o primeiro match encontrado
+        placeholders.set(placeholder, matches[0]);
+        cleaned = cleaned.replace(regex, placeholder);
+      }
+    }
+  });
+
+  return { cleaned, placeholders };
+}
+
+/**
+ * Restore technical terms after translation
+ */
+function restoreTechnicalTerms(
+  translated: string,
+  placeholders: Map<string, string>
+): string {
+  let restored = translated;
+
+  placeholders.forEach((originalTerm, placeholder) => {
+    restored = restored.replace(new RegExp(placeholder, 'g'), originalTerm);
+  });
+
+  return restored;
+}
+
+/**
  * Detect language using pattern matching
  * Returns: 'pt', 'en', 'es', 'zh'
  */
@@ -326,23 +460,33 @@ export async function translateForComex(
   text: string,
   sourceLanguage?: string
 ): Promise<TranslationResult> {
-  // Auto-detect language if not provided
-  const detectedLang = sourceLanguage || detectLanguage(text);
+  // Step 0: Preserve technical terms (DO NOT TRANSLATE)
+  const { cleaned, placeholders } = preserveTechnicalTerms(text);
+  const preservedTerms = Array.from(placeholders.values());
 
-  // If already Portuguese, skip translation
+  if (preservedTerms.length > 0) {
+    console.log(`[Translator] Preserved ${preservedTerms.length} technical terms: ${preservedTerms.slice(0, 3).join(', ')}${preservedTerms.length > 3 ? '...' : ''}`);
+  }
+
+  // Auto-detect language if not provided (use cleaned text for detection)
+  const detectedLang = sourceLanguage || detectLanguage(cleaned);
+
+  // If already Portuguese, skip translation (but restore technical terms)
   if (detectedLang === 'pt') {
+    const restored = restoreTechnicalTerms(cleaned, placeholders);
     return {
       original: text,
-      translated: text,
+      translated: restored,
       sourceLanguage: 'pt',
       confidence: 1.0,
       fromCache: false,
+      technicalTermsPreserved: preservedTerms,
     };
   }
 
   // Step 1: Try dictionary translation (fast, accurate, no tokens)
-  const textLower = text.toLowerCase();
-  let translated = text;
+  const textLower = cleaned.toLowerCase();
+  let translated = cleaned;
   let matchCount = 0;
   const usedTerms: string[] = [];
 
@@ -368,25 +512,34 @@ export async function translateForComex(
   // If found matches in dictionary, return with high confidence
   if (matchCount > 0) {
     console.log(`[Translator] Dictionary matched ${matchCount} terms: ${usedTerms.slice(0, 3).join(', ')}${usedTerms.length > 3 ? '...' : ''}`);
+
+    // Restore technical terms
+    const finalTranslation = restoreTechnicalTerms(translated, placeholders);
+
     return {
       original: text,
-      translated,
+      translated: finalTranslation,
       sourceLanguage: detectedLang,
       confidence: 0.9,
       fromCache: false,
+      technicalTermsPreserved: preservedTerms,
     };
   }
 
   // Step 2: Fallback to Gemini for unknown terms
-  console.log(`[Translator] No dictionary match, using Gemini for: "${text.substring(0, 50)}..."`);
-  const geminiTranslation = await translateWithGemini(text, detectedLang);
+  console.log(`[Translator] No dictionary match, using Gemini for: "${cleaned.substring(0, 50)}..."`);
+  const geminiTranslation = await translateWithGemini(cleaned, detectedLang);
+
+  // Restore technical terms in Gemini translation
+  const finalGeminiTranslation = restoreTechnicalTerms(geminiTranslation, placeholders);
 
   return {
     original: text,
-    translated: geminiTranslation,
+    translated: finalGeminiTranslation,
     sourceLanguage: detectedLang,
     confidence: 0.75,
     fromCache: false,
+    technicalTermsPreserved: preservedTerms,
   };
 }
 
